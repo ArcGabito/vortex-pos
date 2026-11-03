@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VortexPos.Core/VortexPos.Core.csproj" />
+    <Project Path="src/VortexPos/VortexPos.csproj">
+      <Deploy />
+    </Project>
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VortexPos.Core.Tests/VortexPos.Core.Tests.csproj" />
+  </Folder>
+</Solution>
