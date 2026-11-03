@@ -1,0 +1,220 @@
+@page "/turnos"
+@inherits PosPage
+
+<SectionContent SectionName="page-title">Turnos de caja</SectionContent>
+
+<div class="page">
+    <div class="page-head">
+        <div>
+            <h2>Turnos de caja</h2>
+            <p>Abre la caja con el fondo inicial y ciérrala con el arqueo: lo esperado contra lo que contaste.</p>
+        </div>
+        @if (_open is null && !Loading)
+        {
+            <button class="btn btn-dark" @onclick="StartOpen"><Icon Name="unlock" Size="18" />Abrir caja</button>
+        }
+    </div>
+
+    @if (_open is { } s && _summary is { } sum)
+    {
+        <div class="card">
+            <div class="card-head">
+                <div>
+                    <h3>Caja abierta · @s.Number</h3>
+                    <div class="sub">@s.SiteName · desde el @Fmt.DateTime(s.OpenedAt)@(s.OpenedBy is null ? "" : $" por {s.OpenedBy}")</div>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <a class="btn btn-sm" href="caja"><Icon Name="cart" Size="16" />Vender</a>
+                    <button class="btn btn-dark btn-sm" @onclick="StartClose"><Icon Name="lock" Size="16" />Cerrar caja</button>
+                </div>
+            </div>
+            <div class="stat-strip boxed" style="margin:0 20px 18px">
+                <StatTile Icon="receipt" Label="Ventas del turno" Value="@Fmt.Compact(sum.Sales)" Hint="@Fmt.Money(sum.SalesTotal, Currency)" />
+                <StatTile Icon="cash" Label="Fondo inicial" Value="@Fmt.Money(sum.OpeningFloat, Currency)" />
+                <StatTile Icon="cash" Label="Cobrado en efectivo" Value="@Fmt.Money(sum.CashSales, Currency)" Hint="@(sum.CashRefunds > 0 ? $"−{Fmt.Money(sum.CashRefunds, Currency)} en devoluciones" : null)" />
+                <StatTile Icon="wallet" Label="Efectivo esperado" Value="@Fmt.Money(sum.ExpectedCash, Currency)" />
+            </div>
+            @if (sum.ByMethod.Count > 0)
+            {
+                <div class="card-body">
+                    @foreach (var (method, amount) in sum.ByMethod.OrderByDescending(m => m.Value))
+                    {
+                        <div class="list-row">
+                            <Icon Name="@Fmt.PaymentIcon(method)" Size="18" Class="faint" />
+                            <span>@Fmt.PaymentMethod(method)</span>
+                            <strong class="end">@Fmt.Money(amount, Currency)</strong>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+    else if (!Loading)
+    {
+        <div class="alert info"><Icon Name="lock" Size="18" /><span>La caja de este equipo está cerrada. Ábrela para empezar a vender.</span></div>
+    }
+
+    <div class="card">
+        <div class="card-head"><h3>Historial de turnos</h3></div>
+        <div class="card-body" style="padding-top:0">
+            @if (_history is { Total: 0 })
+            {
+                <EmptyState Icon="clock" Title="Aún no hay turnos" Text="Cada apertura y cierre de esta caja queda registrado aquí." />
+            }
+            else if (_history is { } h)
+            {
+                <div class="table-wrap">
+                    <table class="data">
+                        <thead>
+                            <tr><th>Turno</th><th>Apertura</th><th>Cierre</th><th class="num">Ventas</th><th class="num">Esperado</th><th class="num">Contado</th><th class="num">Diferencia</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var t in h.Items)
+                            {
+                                <tr @key="t.Id">
+                                    <td><div class="two-line"><span class="t1">@t.Number</span><span class="t2">@t.SiteName</span></div></td>
+                                    <td><div class="two-line"><span class="t1" style="font-weight:600">@Fmt.DateTime(t.OpenedAt)</span><span class="t2">@t.OpenedBy</span></div></td>
+                                    <td>
+                                        @if (t.ClosedAt is { } closed)
+                                        {
+                                            <div class="two-line"><span class="t1" style="font-weight:600">@Fmt.DateTime(closed)</span><span class="t2">@t.ClosedBy</span></div>
+                                        }
+                                        else
+                                        {
+                                            <StatusPill Text="Abierta" Tone="good" />
+                                        }
+                                    </td>
+                                    <td class="num">@Fmt.Money(t.SalesTotal, Currency)<div class="muted" style="font-size:12px">@Fmt.Count(t.Sales, "venta", "ventas")</div></td>
+                                    <td class="num">@(t.ExpectedCash is { } e ? Fmt.Money(e, Currency) : "—")</td>
+                                    <td class="num">@(t.CountedCash is { } c ? Fmt.Money(c, Currency) : "—")</td>
+                                    <td class="num">
+                                        @if (t.Difference is { } diff)
+                                        {
+                                            <span class="@(diff == 0 ? "qty-pos" : "qty-neg")" title="@t.Note">@(diff > 0 ? "+" : "")@Fmt.Money(diff, Currency)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="faint">—</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <Pager Page="h.Page" PageSize="h.PageSize" Total="h.Total" Noun="turnos" OnPage="async p => { _page = p; await ReloadAsync(); }" />
+            }
+        </div>
+    </div>
+</div>
+
+@if (_opening)
+{
+    <Modal Title="Abrir caja" Subtitle="@(_storeName is null ? "Elige primero la tienda de esta caja en Configuración." : $"Tienda {_storeName}")" Size="sm" Error="@_error" OnClose="() => _opening = false">
+        <ChildContent>
+            <div class="field">
+                <label>Fondo inicial en efectivo (@Fmt.Symbol(Currency))</label>
+                <input class="control" type="number" min="0" step="0.10" @bind="_amount" />
+            </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _opening = false">Cancelar</button>
+            <button class="btn btn-dark" disabled="@_busy" @onclick="OpenAsync">Abrir caja</button>
+        </Footer>
+    </Modal>
+}
+
+@if (_closing && _summary is { } cs)
+{
+    <Modal Title="Cerrar caja" Subtitle="Cuenta el efectivo del cajón (fondo incluido)." Size="sm" Error="@_error" OnClose="() => _closing = false">
+        <ChildContent>
+            <dl class="totals">
+                <dt>Efectivo esperado</dt><dd>@Fmt.Money(cs.ExpectedCash, Currency)</dd>
+            </dl>
+            <div class="field">
+                <label>Efectivo contado (@Fmt.Symbol(Currency))</label>
+                <input class="control" type="number" min="0" step="0.10" @bind="_amount" @bind:event="oninput" />
+            </div>
+            <dl class="totals">
+                <dt class="grand">Diferencia</dt>
+                <dd class="grand @(_amount - cs.ExpectedCash == 0 ? "good-text" : "warn-text")">@(_amount - cs.ExpectedCash > 0 ? "+" : "")@Fmt.Money(_amount - cs.ExpectedCash, Currency)</dd>
+            </dl>
+            <div class="field">
+                <label>Observación (opcional)</label>
+                <input class="control" placeholder="Explica la diferencia, si la hay" @bind="_note" />
+            </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _closing = false">Cancelar</button>
+            <button class="btn btn-dark" disabled="@_busy" @onclick="CloseAsync">Cerrar caja</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "abrir")] public int? OpenQuery { get; set; }
+
+    private CashSessionRow? _open;
+    private CashSummary? _summary;
+    private PagedResult<CashSessionRow>? _history;
+    private string Currency = "PEN";
+    private string? _storeName;
+    private int _page = 1;
+    private bool _opening, _closing, _busy;
+    private decimal _amount;
+    private string? _note, _error;
+
+    protected override async Task LoadAsync()
+    {
+        _open = await Pos.Cash.GetOpenAsync();
+        _summary = _open is null ? null : await Pos.Cash.GetSummaryAsync(_open.Id);
+        _history = await Pos.Cash.GetSessionsAsync(_page, 10);
+        Currency = (await Pos.Master.GetCompanyAsync())?.CurrencyCode ?? "PEN";
+        var sites = await Pos.Master.GetSitesAsync(activeOnly: true);
+        _storeName = (sites.FirstOrDefault(s => s.Id == Session.DefaultSiteId) ?? sites.FirstOrDefault(s => s.Kind == "Store"))?.Name;
+        if (OpenQuery == 1 && _open is null && !_opening)
+        {
+            OpenQuery = null;
+            StartOpen();
+        }
+    }
+
+    private void StartOpen()
+    {
+        _error = null;
+        _amount = 0;
+        _opening = true;
+    }
+
+    private void StartClose()
+    {
+        _error = null;
+        _note = null;
+        _amount = _summary?.ExpectedCash ?? 0;
+        _closing = true;
+    }
+
+    private async Task OpenAsync()
+    {
+        _busy = true;
+        _error = await TryAsync(() => Pos.Cash.OpenAsync(_amount), "Caja abierta. ¡Buenas ventas!");
+        _busy = false;
+        if (_error is null)
+            _opening = false;
+    }
+
+    private async Task CloseAsync()
+    {
+        if (_open is not { } s)
+            return;
+        _busy = true;
+        decimal diff = 0;
+        _error = await TryAsync(async () => diff = await Pos.Cash.CloseAsync(s.Id, _amount, _note));
+        _busy = false;
+        if (_error is null)
+        {
+            _closing = false;
+            Toasts.Success(diff == 0 ? "Caja cerrada sin diferencias." : $"Caja cerrada con una diferencia de {Fmt.Money(diff, Currency)}.");
+        }
+    }
+}

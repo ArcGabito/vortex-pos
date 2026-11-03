@@ -1,0 +1,139 @@
+@page "/"
+@inherits PosPage
+
+<SectionContent SectionName="page-title">Panel</SectionContent>
+
+@if (_summary is { } s)
+{
+    <div class="stat-strip">
+        <StatTile Icon="wallet" Label="Vendido hoy" Value="@Fmt.MoneyCompact(s.SalesToday, s.CurrencyCode)" Delta="s.SalesChangePct" Hint="@(s.SalesChangePct is null ? null : "vs. ayer a esta hora")" />
+        <StatTile Icon="receipt" Label="Tickets hoy" Value="@Fmt.Compact(s.TicketsToday)" Hint="@($"promedio {Fmt.Money(s.AverageTicket, s.CurrencyCode)}")" />
+        <StatTile Icon="arrows" Label="Últimos 7 días" Value="@Fmt.MoneyCompact(s.Sales7d, s.CurrencyCode)" />
+        <StatTile Icon="ban" Label="Anuladas" Value="@Fmt.Compact(s.Voided7d)" UpIsGood="false" Hint="últimos 7 días" />
+    </div>
+}
+
+<div class="page">
+    <div class="page-head">
+        <div>
+            <h2>Hola, @FirstName</h2>
+            <p>@Session.Session?.Access.OrganizationName · @(_cash is { } c ? $"Caja abierta en {c.SiteName} desde las {c.OpenedAt.ToLocalTime():HH:mm}" : "La caja está cerrada")</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+            @if (_cash is null)
+            {
+                <a class="btn btn-outline" href="turnos?abrir=1"><Icon Name="unlock" Size="18" />Abrir caja</a>
+            }
+            <a class="btn btn-dark" href="caja"><Icon Name="cart" Size="18" />Vender</a>
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <div class="card">
+            <div class="card-head">
+                <div>
+                    <h3>Ventas recientes</h3>
+                    <div class="sub">Las últimas de todas las cajas</div>
+                </div>
+                <a class="btn btn-sm" href="ventas">Ver todas</a>
+            </div>
+            <div class="card-body" style="padding-top:12px">
+                @if (_recent.Count == 0)
+                {
+                    <EmptyState Icon="receipt" Title="Aún no hay ventas" Text="Abre la caja y registra tu primera venta." />
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="data" style="min-width:520px">
+                            <thead><tr><th>Venta</th><th>Cliente</th><th>Estado</th><th class="num">Total</th><th class="num">Cuándo</th></tr></thead>
+                            <tbody>
+                                @foreach (var r in _recent)
+                                {
+                                    var (text, tone) = StatusPill.ForSale(r);
+                                    <tr>
+                                        <td><div class="two-line"><span class="t1">@r.Number</span><span class="t2">@r.SiteName</span></div></td>
+                                        <td><span class="muted">@(r.CustomerName ?? "Clientes varios")</span></td>
+                                        <td><StatusPill Text="@text" Tone="@tone" /></td>
+                                        <td class="num strong">@Fmt.Money(r.Total, r.CurrencyCode)</td>
+                                        <td class="num muted">@Fmt.Ago(r.CreatedAt)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h3>Cobrado hoy</h3>
+                        <div class="sub">Por medio de pago</div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (_summary is not { ByMethodToday.Count: > 0 } sum)
+                    {
+                        <div class="list-row"><span class="muted">Sin cobros hoy.</span></div>
+                    }
+                    else
+                    {
+                        var max = sum.ByMethodToday.Values.Max();
+                        @foreach (var (method, amount) in sum.ByMethodToday)
+                        {
+                            <div class="list-row" style="flex-wrap:wrap">
+                                <Icon Name="@Fmt.PaymentIcon(method)" Size="18" Class="faint" />
+                                <span>@Fmt.PaymentMethod(method)</span>
+                                <strong class="end">@Fmt.Money(amount, sum.CurrencyCode)</strong>
+                                <div class="bar"><span style="width:@((int)(amount / max * 100))%"></span></div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h3>Lo más vendido</h3>
+                        <div class="sub">Últimos 7 días</div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (_top.Count == 0)
+                    {
+                        <div class="list-row"><span class="muted">Todavía no hay ventas esta semana.</span></div>
+                    }
+                    @foreach (var item in _top)
+                    {
+                        <div class="list-row">
+                            <Avatar Text="@item.Name" Size="36" />
+                            <div class="two-line"><span class="t1">@item.Name</span><span class="t2">@Fmt.Qty(item.Quantity) vendidos</span></div>
+                            <strong class="end">@Fmt.Money(item.Total, _summary?.CurrencyCode ?? "PEN")</strong>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private DashboardSummary? _summary;
+    private CashSessionRow? _cash;
+    private IReadOnlyList<SaleRow> _recent = [];
+    private IReadOnlyList<TopItem> _top = [];
+
+    private string FirstName => Session.UserName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+
+    protected override async Task LoadAsync()
+    {
+        _summary = await Pos.Sales.GetDashboardAsync();
+        _cash = await Pos.Cash.GetOpenAsync();
+        _recent = (await Pos.Sales.GetSalesAsync(new SaleQuery(PageSize: 8))).Items;
+        _top = await Pos.Sales.GetTopItemsAsync();
+    }
+}

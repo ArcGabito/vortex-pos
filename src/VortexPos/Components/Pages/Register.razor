@@ -1,0 +1,368 @@
+@page "/caja"
+@inherits PosPage
+
+<SectionContent SectionName="page-title">Vender</SectionContent>
+
+@if (Loading)
+{
+    <div class="boot"><div class="spinner"></div></div>
+}
+else if (_session is null)
+{
+    <div class="page">
+        <EmptyState Icon="lock" Title="La caja está cerrada" Text="Abre un turno con el fondo de caja para empezar a vender.">
+            <a class="btn btn-dark" href="turnos?abrir=1"><Icon Name="unlock" Size="18" />Abrir caja</a>
+        </EmptyState>
+    </div>
+}
+else
+{
+    <div class="register">
+        <section class="register-catalog">
+            <ItemPicker @ref="_picker" SiteId="_session.SiteId" OnSelected="Add" />
+            @if (_categories.Count > 0)
+            {
+                <div class="chips">
+                    <button class="chip @(_category == "" ? "on" : "")" @onclick="@(() => SetCategoryAsync(""))">Todo</button>
+                    @foreach (var category in _categories)
+                    {
+                        <button class="chip @(_category == category ? "on" : "")" @onclick="() => SetCategoryAsync(category)">@category</button>
+                    }
+                </div>
+            }
+            @if (_tiles.Count == 0)
+            {
+                <EmptyState Icon="tag" Title="No hay artículos" Text="El catálogo llega desde el hub, o puedes crear artículos en Catálogo → Artículos." />
+            }
+            else
+            {
+                <div class="tiles">
+                    @foreach (var item in _tiles)
+                    {
+                        <button class="tile" @key="item.Id" @onclick="() => Add(item)">
+                            <Avatar Text="@item.Name" Size="38" Class="square" />
+                            <span class="name">@item.Name</span>
+                            <span class="price">@Fmt.Money(item.Price, item.CurrencyCode)</span>
+                            @if (item.TrackInventory && item.OnHand is { } onHand)
+                            {
+                                <span class="stock @(onHand <= 0 ? "out" : "")">@Fmt.Qty(onHand) en tienda</span>
+                            }
+                        </button>
+                    }
+                </div>
+            }
+        </section>
+
+        <aside class="card register-cart">
+            <div class="card-head">
+                <div>
+                    <h3>Venta actual</h3>
+                    <div class="sub">@_session.SiteName · @_session.Number</div>
+                </div>
+                @if (_cart.Count > 0)
+                {
+                    <button class="btn btn-ghost btn-sm" @onclick="Clear"><Icon Name="trash" Size="16" />Vaciar</button>
+                }
+            </div>
+            <div class="card-body cart-body">
+                <div class="field">
+                    <label>Cliente</label>
+                    <select class="select" @bind="_customerId">
+                        <option value="">Clientes varios</option>
+                        @foreach (var c in _customers)
+                        {
+                            <option value="@c.Id">@c.Label@(c.Detail is null ? "" : $" · {c.Detail}")</option>
+                        }
+                    </select>
+                </div>
+
+                @if (_cart.Count == 0)
+                {
+                    <div class="cart-empty">
+                        <Icon Name="cart" Size="28" />
+                        <span>Escanea un código o toca un artículo para agregarlo.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="cart-lines">
+                        @foreach (var line in _cart)
+                        {
+                            <div class="cart-line" @key="line.Item.Id">
+                                <div class="two-line">
+                                    <span class="t1">@line.Item.Name</span>
+                                    <span class="t2">@Fmt.Money(line.UnitPrice, line.Item.CurrencyCode) c/u@(line.Discount > 0 ? $" · −{Fmt.Money(line.Discount, line.Item.CurrencyCode)}" : "")</span>
+                                </div>
+                                <div class="qty">
+                                    <button class="btn btn-ghost icon-btn sm" @onclick="() => Step(line, -1)" aria-label="Quitar uno"><Icon Name="minus" Size="16" /></button>
+                                    <input class="control" type="number" min="0" step="any" @bind="line.Quantity" @bind:event="oninput" aria-label="Cantidad" />
+                                    <button class="btn btn-ghost icon-btn sm" @onclick="() => Step(line, 1)" aria-label="Agregar uno"><Icon Name="plus" Size="16" /></button>
+                                </div>
+                                <strong class="amount">@Fmt.Money(line.Total, line.Item.CurrencyCode)</strong>
+                                <KebabMenu>
+                                    <button @onclick="() => EditDiscount(line)"><Icon Name="tag" Size="18" />Descuento</button>
+                                    <button class="danger" @onclick="() => _cart.Remove(line)"><Icon Name="x" Size="18" />Quitar</button>
+                                </KebabMenu>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <dl class="totals">
+                    <dt>Op. gravada y exonerada</dt><dd>@Fmt.Money(Totals.Subtotal, Currency)</dd>
+                    <dt>IGV (18 %)</dt><dd>@Fmt.Money(Totals.Tax, Currency)</dd>
+                    @if (Totals.Discount > 0)
+                    {
+                        <dt>Descuentos</dt><dd>−@Fmt.Money(Totals.Discount, Currency)</dd>
+                    }
+                    <dt class="grand">Total</dt><dd class="grand">@Fmt.Money(Totals.Total, Currency)</dd>
+                </dl>
+                <button class="btn btn-accent btn-block btn-lg" disabled="@(!CanCharge)" @onclick="OpenPayment">
+                    <Icon Name="cash" Size="20" />Cobrar @Fmt.Money(Totals.Total, Currency)
+                </button>
+            </div>
+        </aside>
+    </div>
+}
+
+@if (_discountFor is { } d)
+{
+    <Modal Title="Descuento" Subtitle="@d.Item.Name" Size="sm" Error="@_error" OnClose="() => _discountFor = null">
+        <ChildContent>
+            <div class="field">
+                <label>Monto de descuento de la línea (@Fmt.Symbol(d.Item.CurrencyCode))</label>
+                <input class="control" type="number" min="0" step="0.10" @bind="_discount" />
+            </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _discountFor = null">Cancelar</button>
+            <button class="btn btn-dark" @onclick="ApplyDiscount">Aplicar</button>
+        </Footer>
+    </Modal>
+}
+
+@if (_paying)
+{
+    <Modal Title="@($"Cobrar {Fmt.Money(Totals.Total, Currency)}")" Subtitle="Puedes combinar medios de pago." Error="@_error" OnClose="() => _paying = false">
+        <ChildContent>
+            <div class="methods">
+                @foreach (var method in PaymentMethods.All)
+                {
+                    <button class="method @(_payments.ContainsKey(method) ? "on" : "")" @onclick="() => ToggleMethod(method)"
+                            disabled="@(method == PaymentMethods.Credit && _customerId is null)"
+                            title="@(method == PaymentMethods.Credit && _customerId is null ? "Elige un cliente para vender al crédito" : null)">
+                        <Icon Name="@Fmt.PaymentIcon(method)" Size="22" />@Fmt.PaymentMethod(method)
+                    </button>
+                }
+            </div>
+            @foreach (var (method, amount) in _payments)
+            {
+                var m = method;
+                <div class="form-row">
+                    <div class="field">
+                        <label>@(m == PaymentMethods.Cash ? "Efectivo recibido" : Fmt.PaymentMethod(m))</label>
+                        <input class="control" type="number" min="0" step="0.10" value="@amount"
+                               @onchange="e => _payments[m] = decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0" />
+                    </div>
+                    @if (m == PaymentMethods.Cash)
+                    {
+                        <div class="field">
+                            <label>Billetes rápidos</label>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                @foreach (var bill in QuickCash())
+                                {
+                                    <button class="btn btn-sm" @onclick="() => _payments[m] = bill">@bill.ToString("0.##", Fmt.Culture)</button>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else if (m is PaymentMethods.Card or PaymentMethods.Transfer or PaymentMethods.Wallet)
+                    {
+                        <div class="field">
+                            <label>Referencia (opcional)</label>
+                            <input class="control" placeholder="@(m == PaymentMethods.Card ? "VISA 1234" : "N.° de operación")" @bind="_references[m]" />
+                        </div>
+                    }
+                </div>
+            }
+            <dl class="totals">
+                <dt>Total</dt><dd>@Fmt.Money(Totals.Total, Currency)</dd>
+                <dt>Pagado</dt><dd>@Fmt.Money(Paid, Currency)</dd>
+                @if (Paid >= Totals.Total)
+                {
+                    <dt class="grand">Vuelto</dt><dd class="grand good-text">@Fmt.Money(Paid - Totals.Total, Currency)</dd>
+                }
+                else
+                {
+                    <dt class="grand">Falta</dt><dd class="grand warn-text">@Fmt.Money(Totals.Total - Paid, Currency)</dd>
+                }
+            </dl>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _paying = false">Volver</button>
+            <button class="btn btn-dark" disabled="@(_busy || Paid < Totals.Total)" @onclick="ChargeAsync"><Icon Name="check" Size="18" />Confirmar cobro</button>
+        </Footer>
+    </Modal>
+}
+
+@if (_receipt is { } r)
+{
+    <Modal Title="Venta registrada" Subtitle="@r.Number" Size="sm" OnClose="NewSale">
+        <ChildContent>
+            <div class="receipt-done">
+                <div class="em-icon"><Icon Name="check" Size="28" Stroke="2.4" /></div>
+                <strong>@Fmt.Money(r.Total, Currency)</strong>
+                @if (r.Change > 0)
+                {
+                    <span class="change">Vuelto: <b>@Fmt.Money(r.Change, Currency)</b></span>
+                }
+                <span class="muted">Se guardó en este equipo y se enviará al hub (WMS y ERP) al sincronizar.</span>
+            </div>
+        </ChildContent>
+        <Footer>
+            <a class="btn" href="ventas">Ver ventas</a>
+            <button class="btn btn-dark" @onclick="NewSale">Nueva venta</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    private sealed class CartItem
+    {
+        public required ItemRow Item { get; init; }
+        public decimal Quantity { get; set; } = 1;
+        public decimal UnitPrice { get; set; }
+        public decimal Discount { get; set; }
+        public decimal Total => Quantity > 0 ? SalesService.LineTotal(Quantity, UnitPrice, Math.Min(Discount, Quantity * UnitPrice)) : 0;
+    }
+
+    private CashSessionRow? _session;
+    private IReadOnlyList<string> _categories = [];
+    private IReadOnlyList<ItemRow> _tiles = [];
+    private IReadOnlyList<Option> _customers = [];
+    private string _category = "";
+    private readonly List<CartItem> _cart = [];
+    private Guid? _customerId;
+    private ItemPicker? _picker;
+
+    private CartItem? _discountFor;
+    private decimal _discount;
+    private bool _paying, _busy;
+    private readonly Dictionary<string, decimal> _payments = [];
+    private readonly Dictionary<string, string?> _references = [];
+    private SaleReceipt? _receipt;
+    private string? _error;
+
+    private string Currency => _cart.FirstOrDefault()?.Item.CurrencyCode ?? "PEN";
+    private SaleTotals Totals => SalesService.Totals(_cart.Where(l => l.Quantity > 0).Select(l => (l.Total, Math.Min(l.Discount, l.Quantity * l.UnitPrice), l.Item.Taxable)));
+    private decimal Paid => _payments.Values.Sum();
+    private bool CanCharge => _cart.Any(l => l.Quantity > 0) && _cart.All(l => l.Quantity >= 0);
+
+    protected override async Task LoadAsync()
+    {
+        _session = await Pos.Cash.GetOpenAsync();
+        if (_session is null)
+            return;
+        _categories = await Pos.Master.GetCategoriesAsync();
+        _customers = await Pos.Master.GetPartyOptionsAsync(suppliers: false);
+        await LoadTilesAsync();
+    }
+
+    private async Task LoadTilesAsync() =>
+        _tiles = (await Pos.Master.GetItemsAsync(null, _category == "" ? null : _category, 1, 24, includeInactive: false, _session?.SiteId)).Items;
+
+    private async Task SetCategoryAsync(string category)
+    {
+        _category = category;
+        await LoadTilesAsync();
+    }
+
+    private void Add(ItemRow item)
+    {
+        if (_cart.FirstOrDefault(l => l.Item.Id == item.Id) is { } existing)
+            existing.Quantity += 1;
+        else
+            _cart.Add(new CartItem { Item = item, UnitPrice = item.Price });
+    }
+
+    private void Step(CartItem line, int delta)
+    {
+        line.Quantity = Math.Max(0, line.Quantity + delta);
+        if (line.Quantity == 0)
+            _cart.Remove(line);
+    }
+
+    private void Clear()
+    {
+        _cart.Clear();
+        _customerId = null;
+    }
+
+    private void EditDiscount(CartItem line)
+    {
+        _error = null;
+        _discount = line.Discount;
+        _discountFor = line;
+    }
+
+    private void ApplyDiscount()
+    {
+        if (_discountFor is not { } line)
+            return;
+        if (_discount < 0 || _discount > line.Quantity * line.UnitPrice)
+        {
+            _error = "El descuento debe estar entre cero y el importe de la línea.";
+            return;
+        }
+        line.Discount = _discount;
+        _discountFor = null;
+    }
+
+    private void OpenPayment()
+    {
+        _error = null;
+        _payments.Clear();
+        _references.Clear();
+        _payments[PaymentMethods.Cash] = Totals.Total;
+        _paying = true;
+    }
+
+    private void ToggleMethod(string method)
+    {
+        if (!_payments.Remove(method))
+            _payments[method] = Math.Max(0, Totals.Total - Paid);
+        _references.TryAdd(method, null);
+    }
+
+    /// <summary>Monto exacto y los billetes de sol que alcanzan para pagar.</summary>
+    private IEnumerable<decimal> QuickCash()
+    {
+        var due = Totals.Total - _payments.Where(p => p.Key != PaymentMethods.Cash).Sum(p => p.Value);
+        return new[] { due }.Concat(new decimal[] { 10, 20, 50, 100, 200 }.Where(b => b > due)).Where(b => b > 0).Distinct().Take(5);
+    }
+
+    private async Task ChargeAsync()
+    {
+        var draft = new SaleDraft(
+            _cart.Where(l => l.Quantity > 0).Select(l => new CartLine(l.Item.Id, l.Quantity, l.UnitPrice, Math.Min(l.Discount, l.Quantity * l.UnitPrice))).ToList(),
+            _payments.Where(p => p.Value > 0).Select(p => new PaymentDraft(p.Key, p.Value, _references.GetValueOrDefault(p.Key))).ToList(),
+            _customerId);
+        _busy = true;
+        SaleReceipt? receipt = null;
+        _error = await TryAsync(async () => receipt = await Pos.Sales.CheckoutAsync(draft));
+        _busy = false;
+        if (_error is null)
+        {
+            _paying = false;
+            _receipt = receipt;
+        }
+    }
+
+    private async Task NewSale()
+    {
+        _receipt = null;
+        Clear();
+        if (_picker is not null)
+            await _picker.FocusAsync();
+    }
+}

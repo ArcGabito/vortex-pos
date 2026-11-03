@@ -1,0 +1,387 @@
+@page "/ventas"
+@inherits PosPage
+@inject FileExporter Exporter
+
+<SectionContent SectionName="page-title">Ventas</SectionContent>
+
+<div class="page">
+    <div class="page-head">
+        <div>
+            <h2>Ventas</h2>
+            <p>Las de esta caja y las de las demás cajas de la organización. Desde aquí se anulan y se registran devoluciones.</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-outline" @onclick="ExportAsync"><Icon Name="download" Size="18" />Exportar CSV</button>
+            <a class="btn btn-dark" href="caja"><Icon Name="cart" Size="18" />Nueva venta</a>
+        </div>
+    </div>
+
+    <div class="filters">
+        <div class="field search">
+            <label>Buscar</label>
+            <div class="input-icon">
+                <Icon Name="search" Size="16" />
+                <input class="control" placeholder="Número, cliente o comprobante" value="@_search" @oninput="OnSearchInput" />
+            </div>
+        </div>
+        <div class="field">
+            <label>Desde</label>
+            <input class="control" type="date" value="@_from?.ToString("yyyy-MM-dd")" @onchange="async e => { _from = ParseDate(e.Value); _page = 1; await ReloadAsync(); }" />
+        </div>
+        <div class="field">
+            <label>Hasta</label>
+            <input class="control" type="date" value="@_to?.ToString("yyyy-MM-dd")" @onchange="async e => { _to = ParseDate(e.Value); _page = 1; await ReloadAsync(); }" />
+        </div>
+        <div class="field">
+            <label>Tienda</label>
+            <select class="select" value="@_site" @onchange="async e => { _site = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null; _page = 1; await ReloadAsync(); }">
+                <option value="">Todas</option>
+                @foreach (var site in _sites)
+                {
+                    <option value="@site.Id">@site.Name</option>
+                }
+            </select>
+        </div>
+        <div class="field" style="width:auto">
+            <label>Estado</label>
+            <div class="segmented">
+                @foreach (var (value, label) in Tabs)
+                {
+                    <button class="@(_status == value ? "on" : "")" @onclick="async () => { _status = value; _page = 1; await ReloadAsync(); }">@label</button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_result is { } page)
+    {
+        @if (page.Total == 0 && !Loading)
+        {
+            <EmptyState Icon="receipt" Title="No hay ventas" Text="Las ventas que registres en Vender aparecen aquí." />
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="data">
+                    <thead>
+                        <tr>
+                            <th>Venta</th>
+                            <th>Cliente</th>
+                            <th>Tienda</th>
+                            <th class="num">Total</th>
+                            <th>Estado</th>
+                            <th class="actions-col">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var s in page.Items)
+                        {
+                            var (text, tone) = StatusPill.ForSale(s);
+                            <tr @key="s.Id" style="cursor:pointer" @onclick="() => OpenAsync(s)">
+                                <td>
+                                    <div class="two-line">
+                                        <span class="t1">@s.Number</span>
+                                        <span class="t2">@Fmt.DateTime(s.CreatedAt)@(s.UserName is null ? "" : $" · {s.UserName}")@(s.Origin == "remote" ? " · otra caja" : "")</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="two-line">
+                                        <span class="t1" style="font-weight:600">@(s.CustomerName ?? "Clientes varios")</span>
+                                        <span class="t2">@(s.InvoiceNumber is { } inv ? $"Comprobante {inv}" : $"{Fmt.Qty(s.Items)} artículos")</span>
+                                    </div>
+                                </td>
+                                <td><span class="muted">@s.SiteName</span></td>
+                                <td class="num strong">@Fmt.Money(s.Total, s.CurrencyCode)</td>
+                                <td><StatusPill Text="@text" Tone="@tone" /></td>
+                                <td class="actions-col" @onclick:stopPropagation>
+                                    <KebabMenu>
+                                        <button @onclick="() => OpenAsync(s)"><Icon Name="receipt" Size="18" />Ver detalle</button>
+                                        @if (s.CanReturn)
+                                        {
+                                            <button @onclick="() => StartReturnAsync(s)"><Icon Name="undo" Size="18" />Registrar devolución</button>
+                                        }
+                                        @if (s.CanVoid)
+                                        {
+                                            <button class="danger" @onclick="() => StartVoid(s)"><Icon Name="ban" Size="18" />Anular</button>
+                                        }
+                                    </KebabMenu>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <Pager Page="page.Page" PageSize="page.PageSize" Total="page.Total" Noun="ventas" OnPage="async p => { _page = p; await ReloadAsync(); }" />
+        }
+    }
+</div>
+
+@if (_detail is { } d)
+{
+    <Modal Title="@($"Venta {d.Number}")" Subtitle="@($"{Fmt.DateTime(d.CreatedAt)} · {d.SiteName}")" Size="lg" OnClose="() => _detail = null">
+        <ChildContent>
+            @{ var (text, tone) = StatusPill.ForSale(d); }
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <StatusPill Text="@text" Tone="@tone" />
+                <span class="muted">@(d.CustomerName ?? "Clientes varios")@(d.UserName is null ? "" : $" · atendió {d.UserName}")</span>
+            </div>
+            @if (d.VoidReason is not null)
+            {
+                <div class="alert warn"><Icon Name="ban" Size="18" /><span>Anulada el @Fmt.DateTime(d.VoidedAt!.Value): @d.VoidReason</span></div>
+            }
+            <div class="table-wrap">
+                <table class="data" style="min-width:480px">
+                    <thead><tr><th>Artículo</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead>
+                    <tbody>
+                        @foreach (var l in _lines)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="two-line">
+                                        <span class="t1">@l.Name</span>
+                                        <span class="t2">#@l.Sku@(l.Discount > 0 ? $" · desc. {Fmt.Money(l.Discount, d.CurrencyCode)}" : "")@(l.ReturnedQty > 0 ? $" · devuelto {Fmt.Qty(l.ReturnedQty)}" : "")</span>
+                                    </div>
+                                </td>
+                                <td class="num">@Fmt.Qty(l.Quantity)</td>
+                                <td class="num">@Fmt.Money(l.UnitPrice, d.CurrencyCode)</td>
+                                <td class="num strong">@Fmt.Money(l.Total, d.CurrencyCode)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="grid-2" style="grid-template-columns:1fr 1fr">
+                <dl class="kv">
+                    @foreach (var p in _payments)
+                    {
+                        <dt>@Fmt.PaymentMethod(p.Method)@(p.Reference is null ? "" : $" ({p.Reference})")</dt>
+                        <dd>@Fmt.Money(p.Amount, d.CurrencyCode)</dd>
+                    }
+                    @if (d.CashReceived is { } received)
+                    {
+                        <dt>Efectivo recibido</dt><dd>@Fmt.Money(received, d.CurrencyCode)</dd>
+                        <dt>Vuelto</dt><dd>@Fmt.Money(d.ChangeGiven ?? 0, d.CurrencyCode)</dd>
+                    }
+                    @if (d.InvoiceNumber is not null)
+                    {
+                        <dt>Comprobante (ERP)</dt><dd>@d.InvoiceNumber</dd>
+                    }
+                </dl>
+                <dl class="totals">
+                    <dt>Op. gravada y exonerada</dt><dd>@Fmt.Money(d.Subtotal, d.CurrencyCode)</dd>
+                    <dt>IGV</dt><dd>@Fmt.Money(d.Tax, d.CurrencyCode)</dd>
+                    @if (d.Discount > 0)
+                    {
+                        <dt>Descuentos</dt><dd>−@Fmt.Money(d.Discount, d.CurrencyCode)</dd>
+                    }
+                    <dt class="grand">Total</dt><dd class="grand">@Fmt.Money(d.Total, d.CurrencyCode)</dd>
+                    @if (d.Returned > 0)
+                    {
+                        <dt>Devuelto</dt><dd class="warn-text">−@Fmt.Money(d.Returned, d.CurrencyCode)</dd>
+                    }
+                </dl>
+            </div>
+        </ChildContent>
+        <Footer>
+            @if (d.CanVoid)
+            {
+                <button class="btn btn-danger" @onclick="() => StartVoid(d)"><Icon Name="ban" Size="18" />Anular</button>
+            }
+            @if (d.CanReturn)
+            {
+                <button class="btn" @onclick="() => StartReturnAsync(d)"><Icon Name="undo" Size="18" />Devolución</button>
+            }
+            <button class="btn btn-dark" @onclick="() => _detail = null">Cerrar</button>
+        </Footer>
+    </Modal>
+}
+
+@if (_voiding is { } v)
+{
+    <Modal Title="@($"Anular {v.Number}")" Subtitle="El WMS devolverá el stock y el ERP revertirá el ingreso." Size="sm" Error="@_error" OnClose="() => _voiding = null">
+        <ChildContent>
+            <div class="field">
+                <label>Motivo</label>
+                <input class="control" placeholder="Error de cobro, venta duplicada…" @bind="_reason" />
+            </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _voiding = null">Cancelar</button>
+            <button class="btn btn-danger" disabled="@_busy" @onclick="VoidAsync">Anular venta</button>
+        </Footer>
+    </Modal>
+}
+
+@if (_returning is { } rt)
+{
+    <Modal Title="@($"Devolución de {rt.Number}")" Subtitle="El reembolso sale en efectivo de la caja abierta." Error="@_error" OnClose="() => _returning = null">
+        <ChildContent>
+            @foreach (var line in _returnLines.Where(l => l.Line.Returnable > 0))
+            {
+                <div class="list-row">
+                    <div class="two-line" style="flex:1">
+                        <span class="t1">@line.Line.Name</span>
+                        <span class="t2">Vendido @Fmt.Qty(line.Line.Quantity) · se puede devolver @Fmt.Qty(line.Line.Returnable)</span>
+                    </div>
+                    <input class="control" style="width:110px" type="number" min="0" max="@line.Line.Returnable" step="any" @bind="line.Quantity" @bind:event="oninput" aria-label="Cantidad a devolver" />
+                </div>
+            }
+            <div class="field">
+                <label>Motivo</label>
+                <input class="control" placeholder="Producto dañado, cambio…" @bind="_reason" />
+            </div>
+            <dl class="totals">
+                <dt class="grand">A devolver</dt><dd class="grand">@Fmt.Money(ReturnTotal, rt.CurrencyCode)</dd>
+            </dl>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _returning = null">Cancelar</button>
+            <button class="btn btn-dark" disabled="@(_busy || ReturnTotal <= 0)" @onclick="ReturnAsync">Registrar devolución</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    private sealed class ReturnDraft
+    {
+        public required SaleLineRow Line { get; init; }
+        public decimal Quantity { get; set; }
+    }
+
+    private static readonly (string Value, string Label)[] Tabs = [("", "Todas"), (SaleStatuses.Completed, "Pagadas"), (SaleStatuses.Voided, "Anuladas")];
+
+    private const int PageSize = 15;
+    private PagedResult<SaleRow>? _result;
+    private IReadOnlyList<SiteRow> _sites = [];
+    private string _search = "", _status = "";
+    private DateOnly? _from, _to;
+    private Guid? _site;
+    private int _page = 1;
+    private CancellationTokenSource? _debounce;
+
+    private SaleRow? _detail, _voiding, _returning;
+    private IReadOnlyList<SaleLineRow> _lines = [];
+    private IReadOnlyList<PaymentRow> _payments = [];
+    private List<ReturnDraft> _returnLines = [];
+    private string _reason = "";
+    private string? _error;
+    private bool _busy;
+
+    private decimal ReturnTotal => _returnLines.Where(l => l.Quantity > 0 && l.Quantity <= l.Line.Returnable)
+        .Sum(l => Tax.Round(l.Line.Total * l.Quantity / l.Line.Quantity));
+
+    [SupplyParameterFromQuery(Name = "q")] public string? Query { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Query is not null && Query != _search)
+        {
+            _search = Query;
+            _page = 1;
+            await ReloadAsync();
+        }
+    }
+
+    protected override async Task LoadAsync()
+    {
+        _sites = await Pos.Master.GetSitesAsync();
+        _result = await Pos.Sales.GetSalesAsync(BuildQuery(_page));
+        if (_detail is { } open)
+            _detail = await Pos.Sales.GetSaleAsync(open.Id);
+    }
+
+    private SaleQuery BuildQuery(int page, int pageSize = PageSize) =>
+        new(_search, _site, _status == "" ? null : _status, _from, _to, page, pageSize);
+
+    private static DateOnly? ParseDate(object? value) => DateOnly.TryParse(value?.ToString(), out var d) ? d : null;
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        _debounce?.Cancel();
+        _debounce = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(220, _debounce.Token);
+            _page = 1;
+            await ReloadAsync();
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
+
+    private async Task OpenAsync(SaleRow sale)
+    {
+        _lines = await Pos.Sales.GetLinesAsync(sale.Id);
+        _payments = await Pos.Sales.GetPaymentsAsync(sale.Id);
+        _detail = sale;
+    }
+
+    private void StartVoid(SaleRow sale)
+    {
+        _error = null;
+        _reason = "";
+        _voiding = sale;
+    }
+
+    private async Task VoidAsync()
+    {
+        if (_voiding is not { } sale)
+            return;
+        _busy = true;
+        _error = await TryAsync(() => Pos.Sales.VoidAsync(sale.Id, _reason), $"Venta {sale.Number} anulada.");
+        _busy = false;
+        if (_error is null)
+        {
+            _voiding = null;
+            _detail = null;
+        }
+    }
+
+    private async Task StartReturnAsync(SaleRow sale)
+    {
+        _error = null;
+        _reason = "";
+        _returnLines = (await Pos.Sales.GetLinesAsync(sale.Id)).Select(l => new ReturnDraft { Line = l }).ToList();
+        _detail = null;
+        _returning = sale;
+    }
+
+    private async Task ReturnAsync()
+    {
+        if (_returning is not { } sale)
+            return;
+        var lines = _returnLines.Where(l => l.Quantity > 0).Select(l => new ReturnLine(l.Line.LineNo, l.Quantity)).ToList();
+        _busy = true;
+        string? number = null;
+        _error = await TryAsync(async () => number = await Pos.Sales.ReturnAsync(sale.Id, lines, _reason));
+        _busy = false;
+        if (_error is null)
+        {
+            Toasts.Success($"Devolución {number} registrada. Entrega {Fmt.Money(ReturnTotal, sale.CurrencyCode)} en efectivo.");
+            _returning = null;
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        var all = await Pos.Sales.GetSalesAsync(BuildQuery(1, 100_000));
+        var csv = new System.Text.StringBuilder("Número;Fecha;Tienda;Cliente;Estado;Subtotal;IGV;Total;Devuelto;Comprobante\n");
+        foreach (var s in all.Items)
+        {
+            csv.AppendLine(string.Join(';', s.Number, s.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), s.SiteName, s.CustomerName,
+                Fmt.SaleStatus(s.Status), Csv(s.Subtotal), Csv(s.Tax), Csv(s.Total), Csv(s.Returned), s.InvoiceNumber));
+        }
+        var path = await Exporter.ExportAsync($"ventas-{DateTime.Now:yyyyMMdd-HHmm}.csv", csv.ToString());
+        Toasts.Success($"Exportadas {all.Total} ventas ({Path.GetFileName(path)}).");
+    }
+
+    private static string Csv(decimal value) => value.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+    public override void Dispose()
+    {
+        _debounce?.Cancel();
+        base.Dispose();
+    }
+}

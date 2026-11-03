@@ -1,0 +1,47 @@
+namespace VortexPos.Core.Integration;
+
+// Contratos de los eventos de la suite Vortex, versión 1 (docs/SISTEMAS.md del hub, sección 6).
+// Se serializan con VortexJson.Options (camelCase). Se pueden agregar campos, nunca quitar ni cambiar su significado;
+// al leer, los campos desconocidos se ignoran.
+
+public static class SuiteEvents
+{
+    // Publica el POS (y los recibe de sus otras cajas)
+    public const string SaleCompleted = "sale.completed";
+    public const string SaleVoided = "sale.voided";
+    public const string SaleReturned = "sale.returned";
+
+    // Consume el POS
+    public const string StockAdjusted = "stock.adjusted";
+    public const string InvoiceIssued = "invoice.issued";
+}
+
+/// <summary>
+/// <c>sale.completed</c>. Extiende v1 con <c>name</c> en las líneas, <c>taxable</c>, <c>discount</c> y
+/// <c>createdBy</c>, para que las otras cajas muestren la venta completa.
+/// </summary>
+public sealed record SaleCompleted(
+    Guid SaleId, string Number, Guid SiteId, Guid? CustomerId, string CurrencyCode, decimal Subtotal, decimal Tax,
+    decimal Total, IReadOnlyList<SaleLine> Lines, IReadOnlyList<SalePayment> Payments, decimal Discount = 0,
+    string? CreatedBy = null);
+
+public sealed record SaleLine(
+    Guid ItemId, string? Sku, decimal Quantity, decimal UnitPrice, decimal Discount, decimal Total, string? Name = null,
+    bool Taxable = true);
+
+public sealed record SalePayment(string Method, decimal Amount);
+
+public sealed record SaleVoided(Guid SaleId, string? Number, string? Reason);
+
+/// <summary><c>sale.returned</c>. Extiende v1 con <c>number</c> y <c>reason</c>.</summary>
+public sealed record SaleReturned(
+    Guid SaleId, Guid ReturnId, Guid SiteId, IReadOnlyList<SaleReturnLine> Lines, decimal Total, string? Number = null,
+    string? Reason = null);
+
+public sealed record SaleReturnLine(Guid ItemId, decimal Quantity, decimal Total);
+
+/// <summary><c>stock.adjusted</c> del WMS: <c>quantityOnHand</c> es el saldo absoluto en la sede.</summary>
+public sealed record StockAdjusted(Guid SiteId, Guid ItemId, decimal QuantityDelta, decimal QuantityOnHand, string? Reason);
+
+/// <summary><c>invoice.issued</c> del ERP: si viene de una venta de caja, trae <c>saleId</c>.</summary>
+public sealed record InvoiceIssued(Guid InvoiceId, string? Number, Guid? CustomerId, Guid? SaleId, decimal Total, string? CurrencyCode);
