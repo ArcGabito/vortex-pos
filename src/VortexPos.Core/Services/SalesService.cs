@@ -1,4 +1,7 @@
 using Microsoft.Data.Sqlite;
+using VortexApi.Suite.Auditing;
+using VortexApi.Suite.Money;
+using VortexApi.Suite.Taxes;
 using VortexPos.Core.Data;
 using VortexPos.Core.Domain;
 using VortexPos.Core.Integration;
@@ -17,18 +20,30 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
 
     // ---------- Cobro ----------
 
-    /// <summary>Totales del carrito tal como se cobrarían (para mostrar mientras se arma la venta).</summary>
-    public static SaleTotals Totals(IEnumerable<(decimal Total, decimal Discount, bool Taxable)> lines)
+    /// <summary>
+    /// Totales del carrito tal como se cobrarían, con el impuesto del país desglosado por tasa: incluido en el precio
+    /// (Perú, LATAM, Europa) o sumado al cobrar (EE. UU.).
+    /// </summary>
+    public static SaleTotals Totals(IEnumerable<(decimal Total, decimal Discount, string? TaxCode)> lines, TaxRegime regime, string currencyCode)
     {
         var list = lines.ToList();
-        var (subtotal, tax) = Tax.Split(list.Where(l => l.Taxable).Sum(l => l.Total), list.Where(l => !l.Taxable).Sum(l => l.Total));
-        return new SaleTotals(subtotal, tax, list.Sum(l => l.Discount), subtotal + tax);
+        var b = TaxCalculator.Calculate(list.Select(l => new TaxableLine(l.Total, l.TaxCode)), regime, currencyCode);
+        return new SaleTotals(b.Net, b.Tax, list.Sum(l => l.Discount), b.Total);
     }
 
-    public static decimal LineTotal(decimal quantity, decimal unitPrice, decimal discount) => Tax.Round(quantity * unitPrice - discount);
+    public static decimal LineTotal(decimal quantity, decimal unitPrice, decimal discount, string currencyCode) =>
+        Currencies.Get(currencyCode).Round(quantity * unitPrice - discount);
+
+    /// <summary>Régimen de impuesto con que se cobra (para mostrar el nombre del impuesto y calcular en pantalla).</summary>
+    public async Task<TaxRegime> GetTaxRegimeAsync(CancellationToken ct = default)
+    {
+        await using var c = await Db.OpenAsync(ct);
+        return await TaxRegimeAsync(c, null);
+    }
 
     public Task<SaleReceipt> CheckoutAsync(SaleDraft draft, CancellationToken ct = default)
     {
+        RequirePermission(PosPermissions.Sell);
         Require(draft.Lines.Count > 0, "Agrega al menos un artículo.");
         Require(draft.Lines.All(l => l.Quantity > 0), "Las cantidades deben ser mayores que cero.");
         Require(draft.Lines.All(l => l.Discount >= 0), "El descuento no puede ser negativo.");
@@ -46,6 +61,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
                 Require(await c.ScalarAsync<long>("SELECT COUNT(*) FROM parties WHERE id = $id AND is_deleted = 0", tx, ("$id", customer)) > 0,
                     "El cliente no existe.");
 
+            var regime = await TaxRegimeAsync(c, tx);
             var lines = new List<PricedLine>();
             foreach (var cart in draft.Lines.GroupBy(l => l.ItemId))
             {
@@ -58,21 +74,26 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
                 Require(unitPrice >= 0, "El precio no puede ser negativo.");
                 var discount = cart.Sum(l => l.Discount);
                 Require(discount <= quantity * unitPrice, $"El descuento de {item.Name} supera su importe.");
-                lines.Add(new PricedLine(item, quantity, unitPrice, discount, LineTotal(quantity, unitPrice, discount)));
+                if (discount > quantity * unitPrice * PosPermissions.CashierDiscountLimit)
+                    RequirePermission(PosPermissions.DiscountUnlimited);
+                lines.Add(new PricedLine(item, quantity, unitPrice, discount, LineTotal(quantity, unitPrice, discount, item.CurrencyCode)));
             }
 
-            var totals = Totals(lines.Select(l => (l.Total, l.Discount, l.Item.Taxable)));
+            var currency = lines[0].Item.CurrencyCode;
+            var totals = Totals(lines.Select(l => (l.Total, l.Discount, l.Item.TaxCode)), regime, currency);
             var payments = Settle(draft.Payments, totals.Total, draft.CustomerId, out var cashReceived, out var change);
 
             var saleId = Guid.NewGuid();
             var number = await DocumentNumbers.NextAsync(c, tx, DocumentNumbers.Sale, Context.DeviceTag);
-            var currency = lines[0].Item.CurrencyCode;
             var completed = new SaleCompleted(saleId, number, siteId, draft.CustomerId, currency, totals.Subtotal, totals.Tax, totals.Total,
-                lines.Select(l => new SaleLine(l.Item.Id, l.Item.Sku, l.Quantity, l.UnitPrice, l.Discount, l.Total, l.Item.Name, l.Item.Taxable)).ToList(),
+                lines.Select(l => new SaleLine(l.Item.Id, l.Item.Sku, l.Quantity, l.UnitPrice, l.Discount, l.Total, l.Item.Name,
+                    regime.IsTaxed(l.Item.TaxCode), TaxCategories.Normalize(l.Item.TaxCode))).ToList(),
                 payments.Select(p => new SalePayment(p.Method, p.Amount)).ToList(), totals.Discount, Context.UserName);
 
             await InsertSaleAsync(c, tx, completed, "local", session!.Id, now, cashReceived, change, payments);
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleCompleted, completed, subjectType: "sale", subjectId: number, id: saleId);
+            if (totals.Discount > 0)
+                await AuditAsync(c, tx, now, AuditActions.Discount, "sale", saleId, number, $"Descuentos por {totals.Discount:0.##} {currency}");
             return new SaleReceipt(saleId, number, totals.Total, change);
         }, ct);
     }
@@ -113,6 +134,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     /// <summary>Anula una venta sin devoluciones. El evento tiene Id determinista: si dos cajas la anulan, cuenta una vez.</summary>
     public Task VoidAsync(Guid saleId, string reason, CancellationToken ct = default)
     {
+        RequirePermission(PosPermissions.Void);
         Require(!string.IsNullOrWhiteSpace(reason), "Escribe el motivo de la anulación.");
         return InTransactionAsync(async (c, tx, now) =>
         {
@@ -121,6 +143,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             Require(sale!.Status == SaleStatuses.Completed, "La venta ya está anulada.");
             Require(sale.Returned == 0, "La venta tiene devoluciones: no se puede anular.");
             await MarkVoidedAsync(c, tx, saleId, now, reason.Trim());
+            await AuditAsync(c, tx, now, AuditActions.Voided, "sale", saleId, sale.Number, reason.Trim());
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleVoided, new SaleVoided(saleId, sale.Number, reason.Trim()),
                 subjectType: "sale", subjectId: sale.Number, id: DeterministicId.From("sale_void", saleId));
             return 0;
@@ -130,6 +153,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     /// <summary>Devuelve parte o todo de una venta. El reembolso sale en efectivo de la caja abierta.</summary>
     public Task<string> ReturnAsync(Guid saleId, IReadOnlyList<ReturnLine> lines, string? reason, CancellationToken ct = default)
     {
+        RequirePermission(PosPermissions.Return);
         var requested = lines.Where(l => l.Quantity > 0).ToList();
         Require(requested.Count > 0, "Indica qué artículos se devuelven.");
         return InTransactionAsync(async (c, tx, now) =>
@@ -146,7 +170,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             {
                 Require(saleLines.TryGetValue(r.LineNo, out var line), "Una de las líneas no es de esta venta.");
                 Require(r.Quantity <= line!.Returnable, $"De {line.Name} solo se pueden devolver {line.Returnable:0.##}.");
-                returned.Add((line, r.Quantity, Tax.Round(line.Total * r.Quantity / line.Quantity)));
+                returned.Add((line, r.Quantity, Currencies.Get(sale.CurrencyCode).Round(line.Total * r.Quantity / line.Quantity)));
             }
 
             var returnId = Guid.NewGuid();
@@ -157,6 +181,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             await InsertReturnAsync(c, tx, e, session!.Id, now, Context.UserName,
                 returned.Select(r => (r.Line.LineNo, r.Quantity)).ToList());
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleReturned, e, subjectType: "sale", subjectId: sale.Number, id: returnId);
+            await AuditAsync(c, tx, now, AuditActions.Returned, "sale", saleId, sale.Number, $"{number} por {total:0.##} {sale.CurrencyCode}{(Clean(reason) is { } motivo ? $": {motivo}" : "")}");
             return number;
         }, ct);
     }
@@ -228,7 +253,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
 
         return new DashboardSummary(todayTotals.Total, todayTotals.Count,
             yesterdayTotals.Total > 0 ? Math.Round((todayTotals.Total - yesterdayTotals.Total) / yesterdayTotals.Total * 100, 1) : null,
-            todayTotals.Count == 0 ? 0 : Tax.Round(todayTotals.Total / todayTotals.Count), week.Total, voided, byMethod, currency);
+            todayTotals.Count == 0 ? 0 : Math.Round(todayTotals.Total / todayTotals.Count, 2, MidpointRounding.AwayFromZero), week.Total, voided, byMethod, currency);
     }
 
     /// <summary>Lo más vendido en los últimos <paramref name="days"/> días (sin contar lo devuelto).</summary>
@@ -241,7 +266,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             FROM sale_lines l JOIN sales s ON s.id = l.sale_id
             WHERE s.status = 'completed' AND s.created_at >= $from
             GROUP BY l.item_id HAVING qty > 0 ORDER BY total DESC LIMIT $limit
-            """, r => new TopItem(r.Guid("item_id"), r.Str("name"), r.StrOrNull("sku"), r.Dec("qty"), Tax.Round(r.Dec("total"))), null,
+            """, r => new TopItem(r.Guid("item_id"), r.Str("name"), r.StrOrNull("sku"), r.Dec("qty"), Math.Round(r.Dec("total"), 2, MidpointRounding.AwayFromZero)), null,
             ("$from", StartOfDay(days - 1)), ("$limit", limit));
     }
 
@@ -329,10 +354,11 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         {
             var name = l.Name ?? await c.ScalarAsync<string?>("SELECT name FROM items WHERE id = $id", tx, ("$id", l.ItemId)) ?? l.Sku ?? "Artículo";
             await c.ExecAsync("""
-                INSERT INTO sale_lines (sale_id, line_no, item_id, sku, name, quantity, unit_price, discount, total, taxable)
-                VALUES ($sale, $no, $item, $sku, $name, $qty, $price, $discount, $total, $taxable)
+                INSERT INTO sale_lines (sale_id, line_no, item_id, sku, name, quantity, unit_price, discount, total, taxable, tax_code)
+                VALUES ($sale, $no, $item, $sku, $name, $qty, $price, $discount, $total, $taxable, $taxCode)
                 """, tx, ("$sale", e.SaleId), ("$no", ++lineNo), ("$item", l.ItemId), ("$sku", l.Sku), ("$name", name),
-                ("$qty", l.Quantity), ("$price", l.UnitPrice), ("$discount", l.Discount), ("$total", l.Total), ("$taxable", l.Taxable));
+                ("$qty", l.Quantity), ("$price", l.UnitPrice), ("$discount", l.Discount), ("$total", l.Total), ("$taxable", l.Taxable),
+                ("$taxCode", l.TaxCode ?? (l.Taxable ? TaxCategories.Standard : TaxCategories.Exempt)));
         }
 
         var paymentNo = 0;

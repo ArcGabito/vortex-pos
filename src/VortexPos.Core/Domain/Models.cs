@@ -11,6 +11,12 @@ public interface IPosContext
 
     /// <summary>Tienda donde está esta caja (puede ser null hasta que el usuario la elija).</summary>
     Guid? DefaultSiteId { get; }
+
+    /// <summary>Rol efectivo del usuario en el POS (<see cref="PosPermissions"/>).</summary>
+    string Role { get; }
+
+    /// <summary>Si el usuario puede hacer la acción (<see cref="PosPermissions"/>).</summary>
+    bool Can(string permission);
 }
 
 /// <summary>Dato inválido o regla de negocio incumplida: se muestra tal cual al usuario.</summary>
@@ -27,11 +33,7 @@ public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Total, int Page,
 public sealed record ItemRow(
     Guid Id, string Sku, string Name, string Kind, string? Description, string Unit, string? Barcode, string? Category,
     decimal Price, string CurrencyCode, string? TaxCode, bool TrackInventory, bool IsActive, int Version, bool Pending,
-    decimal? OnHand)
-{
-    /// <summary>Con <c>taxCode = "igv"</c> el precio de lista incluye el IGV.</summary>
-    public bool Taxable => string.Equals(TaxCode, Tax.IgvCode, StringComparison.OrdinalIgnoreCase);
-}
+    decimal? OnHand);
 
 public sealed record SiteRow(
     Guid Id, string Code, string Name, string Kind, string? Phone, string? AddressLine, string? City, string? CountryCode,
@@ -41,13 +43,17 @@ public sealed record PartyRow(
     Guid Id, string Name, string? TradeName, string Kind, string? DocumentType, string? DocumentNumber, bool IsCustomer,
     bool IsSupplier, string? Email, string? Phone, string? City, bool IsActive, int Version, bool Pending);
 
-public sealed record CompanyInfo(string LegalName, string? TradeName, string? TaxId, string CountryCode, string CurrencyCode);
+/// <summary>Empresa del hub. <c>DefaultTaxRate</c> en porcentaje (18 = 18 %) y <c>TimeZone</c> IANA.</summary>
+public sealed record CompanyInfo(
+    string LegalName, string? TradeName, string? TaxId, string CountryCode, string CurrencyCode, decimal? DefaultTaxRate = null,
+    string? TimeZone = null);
 
 public sealed record Option(Guid Id, string Label, string? Detail = null);
 
 public sealed record ItemDraft(
     string Sku, string Name, string Unit, string? Category, string? Barcode, decimal Price, string CurrencyCode,
-    string? Description = null, bool TrackInventory = true, string Kind = "Product", string? TaxCode = Tax.IgvCode, bool IsActive = true);
+    string? Description = null, bool TrackInventory = true, string Kind = "Product", string? TaxCode = VortexApi.Suite.Taxes.TaxCategories.Standard,
+    bool IsActive = true);
 
 public sealed record SiteDraft(
     string Code, string Name, string Kind, string? Phone, string? AddressLine, string? City, string CountryCode, bool IsActive = true);
@@ -55,28 +61,6 @@ public sealed record SiteDraft(
 public sealed record PartyDraft(
     string Name, string Kind, bool IsCustomer, bool IsSupplier, string? DocumentType, string? DocumentNumber,
     string? Email, string? Phone, string? City, string CountryCode = "PE");
-
-// ---------- Impuestos ----------
-
-public static class Tax
-{
-    public const string IgvCode = "igv";
-
-    /// <summary>IGV general de Perú: 16 % + 2 % de Impuesto de Promoción Municipal.</summary>
-    public const decimal IgvRate = 0.18m;
-
-    public static decimal Round(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
-
-    /// <summary>
-    /// Desglosa un total con IGV incluido: devuelve la base imponible (subtotal) y el impuesto. Lo no gravado no
-    /// lleva IGV y suma directo al subtotal.
-    /// </summary>
-    public static (decimal Subtotal, decimal Tax) Split(decimal taxableTotal, decimal exemptTotal)
-    {
-        var baseAmount = Round(taxableTotal / (1 + IgvRate));
-        return (baseAmount + exemptTotal, taxableTotal - baseAmount);
-    }
-}
 
 // ---------- Ventas ----------
 
@@ -108,7 +92,13 @@ public sealed record PaymentDraft(string Method, decimal Amount, string? Referen
 /// <summary>Lo que se cobra en caja. En efectivo, <c>Amount</c> es lo que entrega el cliente (puede haber vuelto).</summary>
 public sealed record SaleDraft(IReadOnlyList<CartLine> Lines, IReadOnlyList<PaymentDraft> Payments, Guid? CustomerId = null, Guid? SiteId = null);
 
+/// <summary>Totales de la venta. <c>Subtotal</c> es la base sin impuesto; con precios sin impuesto (EE. UU.) el impuesto se suma.</summary>
 public sealed record SaleTotals(decimal Subtotal, decimal Tax, decimal Discount, decimal Total);
+
+// ---------- Auditoría ----------
+
+public sealed record AuditRow(
+    Guid Id, DateTimeOffset At, string? UserName, string? Device, string Action, string Entity, string? Reference, string? Detail);
 
 public sealed record SaleReceipt(Guid SaleId, string Number, decimal Total, decimal Change);
 

@@ -7,7 +7,8 @@ using VortexPos.Core.Domain;
 namespace VortexPos.Core.Tests;
 
 /// <summary>Workspace sobre una base SQLite temporal, con una tienda, un cliente y artículos ya sincronizados desde el "hub".</summary>
-public sealed class TestWorkspace(string deviceTag = "TEST") : IAsyncLifetime
+public sealed class TestWorkspace(string deviceTag = "TEST", string role = "administrador", string country = "PE", string currency = "PEN",
+    decimal? taxRate = null) : IAsyncLifetime
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"vortex-pos-test-{Guid.NewGuid():N}.db");
 
@@ -19,14 +20,16 @@ public sealed class TestWorkspace(string deviceTag = "TEST") : IAsyncLifetime
     public Guid Coffee { get; } = Guid.Parse("22222222-0000-0000-0000-000000000001");   // S/ 18.50 con IGV
     public Guid Bread { get; } = Guid.Parse("22222222-0000-0000-0000-000000000004");    // S/ 0.50, exonerado
     public Guid Customer { get; } = Guid.Parse("33333333-0000-0000-0000-000000000001");
+    public TestContext Context { get; } = new(deviceTag, Guid.Parse("11111111-0000-0000-0000-000000000002"), role);
 
     public async Task InitializeAsync()
     {
-        Pos = await PosWorkspace.OpenAsync(_path, new Context(deviceTag, Store), Clock);
+        Pos = await PosWorkspace.OpenAsync(_path, Context, Clock);
+        await Pos.Master.ApplyCompanyAsync(Company(country, currency, taxRate));
         await Pos.Master.ApplySiteAsync(Site(Central, "ALM-01", "Almacén central", "Warehouse"));
         await Pos.Master.ApplySiteAsync(Site(Store, "TDA-01", "Tienda Miraflores", "Store"));
-        await Pos.Master.ApplyItemAsync(Item(Coffee, "CAFE-250", "Café tostado 250 g", 18.50m));
-        await Pos.Master.ApplyItemAsync(Item(Bread, "PAN-01", "Pan francés", 0.50m, taxCode: null));
+        await Pos.Master.ApplyItemAsync(Item(Coffee, "CAFE-250", "Café tostado 250 g", 18.50m, currency: currency));
+        await Pos.Master.ApplyItemAsync(Item(Bread, "PAN-01", "Pan francés", 0.50m, taxCode: "exonerado", currency: currency));
         await Pos.Master.ApplyPartyAsync(Party(Customer, "Bodega Don Pepe", "20123456789"));
     }
 
@@ -43,9 +46,9 @@ public sealed class TestWorkspace(string deviceTag = "TEST") : IAsyncLifetime
     public async Task<Guid> OpenCashAsync(decimal openingFloat = 100) => await Pos.Cash.OpenAsync(openingFloat);
 
     public static VortexMasterChange<VortexItem> Item(Guid id, string sku, string name, decimal price, int version = 1,
-        string? taxCode = "igv") =>
+        string? taxCode = "igv", string currency = "PEN") =>
         new(version, id, VortexChangeOperation.Created, version, DateTimeOffset.UtcNow, "HUB",
-            new VortexItem(id, sku, name, "Product", null, "unidad", null, "Abarrotes", price, "PEN", taxCode, true, true,
+            new VortexItem(id, sku, name, "Product", null, "unidad", null, "Abarrotes", price, currency, taxCode, true, true,
                 new VortexMasterMeta(version, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null)));
 
     public static VortexMasterChange<VortexSite> Site(Guid id, string code, string name, string kind) =>
@@ -67,11 +70,20 @@ public sealed class TestWorkspace(string deviceTag = "TEST") : IAsyncLifetime
         new(entry.Id, 1, entry.EventType!, source, 1, entry.SubjectType, entry.SubjectId, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
             null, entry.Payload!.Value);
 
-    private sealed class Context(string deviceTag, Guid store) : IPosContext
+    public static VortexMasterChange<VortexCompany> Company(string country, string currency, decimal? taxRate) =>
+        new(1, Guid.Empty, VortexChangeOperation.Created, 1, DateTimeOffset.UtcNow, "HUB",
+            new VortexCompany(Guid.NewGuid(), "Bodega Demo SAC", null, null, country, currency, "America/Lima",
+                taxRate ?? VortexApi.Suite.Taxes.TaxCatalog.For(country).StandardRate * 100, null, null, null,
+                new VortexMasterMeta(1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null)));
+
+    /// <summary>Usuario de prueba; el rol se puede cambiar a mitad de una prueba.</summary>
+    public sealed class TestContext(string deviceTag, Guid store, string role) : IPosContext
     {
         public Guid? UserId => Guid.Parse("00000000-0000-0000-0000-000000000001");
         public string UserName => "Luis";
         public string DeviceTag => deviceTag;
         public Guid? DefaultSiteId => store;
+        public string Role { get; set; } = role;
+        public bool Can(string permission) => PosPermissions.Matrix.Can(Role, "User", permission);
     }
 }

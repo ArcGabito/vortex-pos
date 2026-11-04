@@ -8,6 +8,20 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Base común de la suite** (`VortexApi.Suite`): impuestos por país (Perú, LATAM, EE. UU., Reino Unido y UE) con
+  desglose por tasa y precios con impuesto incluido o sumado al cobrar (EE. UU.), redondeo según la moneda (el peso
+  chileno sin decimales) y formatos y hora según el país de la empresa.
+- **Roles del POS** asignados en el hub: `cajero` (por defecto), `supervisor` y `administrador`. Anular, devolver,
+  cerrar caja, descuentos de más del 10 % y editar el catálogo requieren supervisor o administrador.
+- **Auditoría**: aperturas y cierres de caja, descuentos, anulaciones y devoluciones quedan registrados con usuario,
+  equipo y hora (pantalla Auditoría).
+- `docs/ROADMAP.md`: hoja de ruta para competir con Square, Lightspeed, Shopify POS y Loyverse.
+
+### Changed
+- `sale.completed` lleva la categoría de impuesto de cada línea (`taxCode`). El `taxCode` de los artículos es una
+  categoría de la base común (`standard`, `reduced`, `zero`, `exempt`…); `igv`, `exonerado` e `inafecto` siguen valiendo.
+
+### Added
 - App **.NET MAUI Blazor Hybrid** (Windows, Android, iOS, macOS) con la arquitectura de Vortex WMS: base SQLite por
   organización, sesión con el hub `vortex-api` y sincronización sin conexión.
 - **Vender**: búsqueda y lectura de código de barras, artículos por categoría, descuentos por línea, cliente opcional,

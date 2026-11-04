@@ -25,7 +25,10 @@
                 </div>
                 <div style="display:flex;gap:8px">
                     <a class="btn btn-sm" href="caja"><Icon Name="cart" Size="16" />Vender</a>
-                    <button class="btn btn-dark btn-sm" @onclick="StartClose"><Icon Name="lock" Size="16" />Cerrar caja</button>
+                    @if (Session.Can(PosPermissions.CloseCash))
+                    {
+                        <button class="btn btn-dark btn-sm" @onclick="StartClose"><Icon Name="lock" Size="16" />Cerrar caja</button>
+                    }
                 </div>
             </div>
             <div class="stat-strip boxed" style="margin:0 20px 18px">

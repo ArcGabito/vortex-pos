@@ -18,6 +18,7 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
 
     public Task<Guid> OpenAsync(decimal openingFloat, Guid? siteId = null, CancellationToken ct = default)
     {
+        RequirePermission(PosPermissions.OpenCash);
         Require(openingFloat >= 0, "El fondo inicial no puede ser negativo.");
         return InTransactionAsync(async (c, tx, now) =>
         {
@@ -34,6 +35,7 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
                 VALUES ($id, $number, $site, 'open', $now, $user, $float)
                 """, tx, ("$id", id), ("$number", number), ("$site", site), ("$now", now), ("$user", Context.UserName),
                 ("$float", openingFloat));
+            await AuditAsync(c, tx, now, VortexApi.Suite.Auditing.AuditActions.CashOpened, "cash_session", id, number, $"Fondo inicial {openingFloat:0.##}");
             return id;
         }, ct);
     }
@@ -47,6 +49,7 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
     /// <summary>Cierra el turno con el efectivo contado. Devuelve la diferencia (contado − esperado).</summary>
     public Task<decimal> CloseAsync(Guid sessionId, decimal countedCash, string? note, CancellationToken ct = default)
     {
+        RequirePermission(PosPermissions.CloseCash);
         Require(countedCash >= 0, "El efectivo contado no puede ser negativo.");
         return InTransactionAsync(async (c, tx, now) =>
         {
@@ -59,6 +62,9 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
                 WHERE id = $id
                 """, tx, ("$id", sessionId), ("$now", now), ("$user", Context.UserName), ("$expected", summary.ExpectedCash),
                 ("$counted", countedCash), ("$note", Clean(note)));
+            var number = await c.ScalarAsync<string>("SELECT number FROM cash_sessions WHERE id = $id", tx, ("$id", sessionId));
+            await AuditAsync(c, tx, now, VortexApi.Suite.Auditing.AuditActions.CashClosed, "cash_session", sessionId, number,
+                $"Esperado {summary.ExpectedCash:0.##}, contado {countedCash:0.##}, diferencia {countedCash - summary.ExpectedCash:0.##}{(Clean(note) is { } n ? $" ({n})" : "")}");
             return countedCash - summary.ExpectedCash;
         }, ct);
     }

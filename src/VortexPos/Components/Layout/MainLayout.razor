@@ -27,6 +27,10 @@
                 <NavLink class="nav-link" href="tiendas"><Icon Name="store" />Tiendas</NavLink>
 
                 <div class="nav-section">Sistema</div>
+                @if (Session.Can(PosPermissions.ViewAudit))
+                {
+                    <NavLink class="nav-link" href="auditoria"><Icon Name="list" />Auditoría</NavLink>
+                }
                 <NavLink class="nav-link" href="configuracion"><Icon Name="settings" />Configuración</NavLink>
             </nav>
 
