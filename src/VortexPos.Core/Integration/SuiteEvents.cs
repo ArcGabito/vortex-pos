@@ -18,7 +18,8 @@ public static class SuiteEvents
 
 /// <summary>
 /// <c>sale.completed</c>. Extiende v1 con <c>name</c> en las líneas, <c>taxable</c>, <c>discount</c> y
-/// <c>createdBy</c>, para que las otras cajas muestren la venta completa.
+/// <c>createdBy</c>, y por línea <c>taxCode</c> (categoría de impuesto de la base común), para que las otras cajas y el
+/// ERP muestren la venta completa.
 /// </summary>
 public sealed record SaleCompleted(
     Guid SaleId, string Number, Guid SiteId, Guid? CustomerId, string CurrencyCode, decimal Subtotal, decimal Tax,
@@ -27,7 +28,7 @@ public sealed record SaleCompleted(
 
 public sealed record SaleLine(
     Guid ItemId, string? Sku, decimal Quantity, decimal UnitPrice, decimal Discount, decimal Total, string? Name = null,
-    bool Taxable = true);
+    bool Taxable = true, string? TaxCode = null);
 
 public sealed record SalePayment(string Method, decimal Amount);
 

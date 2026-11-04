@@ -109,8 +109,8 @@ else
                 }
 
                 <dl class="totals">
-                    <dt>Op. gravada y exonerada</dt><dd>@Fmt.Money(Totals.Subtotal, Currency)</dd>
-                    <dt>IGV (18 %)</dt><dd>@Fmt.Money(Totals.Tax, Currency)</dd>
+                    <dt>Subtotal</dt><dd>@Fmt.Money(Totals.Subtotal, Currency)</dd>
+                    <dt>@_regime.TaxName@(_regime.PricesIncludeTax ? " incluido" : "")</dt><dd>@Fmt.Money(Totals.Tax, Currency)</dd>
                     @if (Totals.Discount > 0)
                     {
                         <dt>Descuentos</dt><dd>−@Fmt.Money(Totals.Discount, Currency)</dd>
@@ -233,7 +233,7 @@ else
         public decimal Quantity { get; set; } = 1;
         public decimal UnitPrice { get; set; }
         public decimal Discount { get; set; }
-        public decimal Total => Quantity > 0 ? SalesService.LineTotal(Quantity, UnitPrice, Math.Min(Discount, Quantity * UnitPrice)) : 0;
+        public decimal Total => Quantity > 0 ? SalesService.LineTotal(Quantity, UnitPrice, Math.Min(Discount, Quantity * UnitPrice), Item.CurrencyCode) : 0;
     }
 
     private CashSessionRow? _session;
@@ -254,13 +254,16 @@ else
     private string? _error;
 
     private string Currency => _cart.FirstOrDefault()?.Item.CurrencyCode ?? "PEN";
-    private SaleTotals Totals => SalesService.Totals(_cart.Where(l => l.Quantity > 0).Select(l => (l.Total, Math.Min(l.Discount, l.Quantity * l.UnitPrice), l.Item.Taxable)));
+    private SaleTotals Totals => SalesService.Totals(_cart.Where(l => l.Quantity > 0).Select(l => (l.Total, Math.Min(l.Discount, l.Quantity * l.UnitPrice), l.Item.TaxCode)),
+        _regime, Currency);
+    private VortexApi.Suite.Taxes.TaxRegime _regime = VortexApi.Suite.Taxes.TaxCatalog.For("PE");
     private decimal Paid => _payments.Values.Sum();
     private bool CanCharge => _cart.Any(l => l.Quantity > 0) && _cart.All(l => l.Quantity >= 0);
 
     protected override async Task LoadAsync()
     {
         _session = await Pos.Cash.GetOpenAsync();
+        _regime = await Pos.Sales.GetTaxRegimeAsync();
         if (_session is null)
             return;
         _categories = await Pos.Master.GetCategoriesAsync();

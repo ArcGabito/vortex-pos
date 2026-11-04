@@ -24,6 +24,15 @@ Este documento resume qué hace el POS con cada dato y evento, y cómo conviven 
 La copia local solo se actualiza desde el feed, por `id` y `version`. Un alta hecha en el POS queda **POR ENVIAR**
 hasta que vuelve por el feed; si el hub la rechaza aparece en **Configuración → Rechazadas por el hub**.
 
+## Impuestos, monedas y permisos (base común de la suite)
+
+- El impuesto sale del país de la empresa y de su tasa general en el hub (`TaxCatalog.For(country, defaultTaxRate)`):
+  incluido en el precio en Perú, LATAM y Europa; sumado al cobrar en EE. UU. El desglose es por tasa y se redondea
+  con los decimales de la moneda.
+- Roles del POS (`session.Access.Role`, los asigna el OrgAdmin): `cajero` (vende, abre caja, registra clientes),
+  `supervisor` (además anula, devuelve, cierra caja, descuentos sin límite y ve la auditoría) y `administrador`
+  (todo, también el catálogo). OrgAdmin y PlatformAdmin del hub son administradores. Sin rol asignado: `cajero`.
+
 ## Datos propios del POS
 
 Ventas (líneas y pagos), devoluciones y turnos de caja. Las ventas viajan como eventos; los turnos de caja son de

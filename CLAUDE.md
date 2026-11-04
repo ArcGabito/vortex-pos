@@ -26,6 +26,8 @@ scripts/pack-sdk.sh   |   ./scripts/pack-sdk.ps1                         # SDK d
 
 - Cobrar, anular y devolver guardan el documento y encolan su evento en la misma transacción (`Outbox`).
 - Una venta no se edita: se anula (Id de evento determinista) o se devuelve en parte.
+- Impuestos, monedas, formatos y permisos vienen de `VortexApi.Suite`: nada fijo para un país. Cada acción sensible
+  valida `RequirePermission` (`PosPermissions`) y deja su `AuditAsync` en la misma transacción.
 - El stock es del WMS: el POS guarda el saldo absoluto de `stock.adjusted` y nunca lo modifica.
 - Los handlers de eventos son idempotentes (`processed_events`) y nunca lanzan por datos inválidos.
 - Errores para el usuario: `PosValidationException` con el mensaje final en español.

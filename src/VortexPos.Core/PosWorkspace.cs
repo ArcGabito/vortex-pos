@@ -17,6 +17,7 @@ public sealed class PosWorkspace
         Master = new MasterDataService(db, context, clock);
         Sales = new SalesService(db, context, clock);
         Cash = new CashService(db, context, clock);
+        Audit = new AuditService(db, context, clock);
         SyncStore = new SqliteSyncStore(db);
         SyncHandlers = new PosSyncHandlers(db, Master, clock);
     }
@@ -25,6 +26,7 @@ public sealed class PosWorkspace
     public MasterDataService Master { get; }
     public SalesService Sales { get; }
     public CashService Cash { get; }
+    public AuditService Audit { get; }
     public SqliteSyncStore SyncStore { get; }
     public PosSyncHandlers SyncHandlers { get; }
 

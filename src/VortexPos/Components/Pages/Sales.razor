@@ -96,11 +96,11 @@
                                 <td class="actions-col" @onclick:stopPropagation>
                                     <KebabMenu>
                                         <button @onclick="() => OpenAsync(s)"><Icon Name="receipt" Size="18" />Ver detalle</button>
-                                        @if (s.CanReturn)
+                                        @if (s.CanReturn && Session.Can(PosPermissions.Return))
                                         {
                                             <button @onclick="() => StartReturnAsync(s)"><Icon Name="undo" Size="18" />Registrar devolución</button>
                                         }
-                                        @if (s.CanVoid)
+                                        @if (s.CanVoid && Session.Can(PosPermissions.Void))
                                         {
                                             <button class="danger" @onclick="() => StartVoid(s)"><Icon Name="ban" Size="18" />Anular</button>
                                         }
@@ -168,8 +168,8 @@
                     }
                 </dl>
                 <dl class="totals">
-                    <dt>Op. gravada y exonerada</dt><dd>@Fmt.Money(d.Subtotal, d.CurrencyCode)</dd>
-                    <dt>IGV</dt><dd>@Fmt.Money(d.Tax, d.CurrencyCode)</dd>
+                    <dt>Subtotal</dt><dd>@Fmt.Money(d.Subtotal, d.CurrencyCode)</dd>
+                    <dt>Impuesto</dt><dd>@Fmt.Money(d.Tax, d.CurrencyCode)</dd>
                     @if (d.Discount > 0)
                     {
                         <dt>Descuentos</dt><dd>−@Fmt.Money(d.Discount, d.CurrencyCode)</dd>
@@ -183,11 +183,11 @@
             </div>
         </ChildContent>
         <Footer>
-            @if (d.CanVoid)
+            @if (d.CanVoid && Session.Can(PosPermissions.Void))
             {
                 <button class="btn btn-danger" @onclick="() => StartVoid(d)"><Icon Name="ban" Size="18" />Anular</button>
             }
-            @if (d.CanReturn)
+            @if (d.CanReturn && Session.Can(PosPermissions.Return))
             {
                 <button class="btn" @onclick="() => StartReturnAsync(d)"><Icon Name="undo" Size="18" />Devolución</button>
             }
@@ -268,7 +268,7 @@
     private bool _busy;
 
     private decimal ReturnTotal => _returnLines.Where(l => l.Quantity > 0 && l.Quantity <= l.Line.Returnable)
-        .Sum(l => Tax.Round(l.Line.Total * l.Quantity / l.Line.Quantity));
+        .Sum(l => VortexApi.Suite.Money.Currencies.Get(_returning?.CurrencyCode).Round(l.Line.Total * l.Quantity / l.Line.Quantity));
 
     [SupplyParameterFromQuery(Name = "q")] public string? Query { get; set; }
 
@@ -367,7 +367,7 @@
     private async Task ExportAsync()
     {
         var all = await Pos.Sales.GetSalesAsync(BuildQuery(1, 100_000));
-        var csv = new System.Text.StringBuilder("Número;Fecha;Tienda;Cliente;Estado;Subtotal;IGV;Total;Devuelto;Comprobante\n");
+        var csv = new System.Text.StringBuilder("Número;Fecha;Tienda;Cliente;Estado;Subtotal;Impuesto;Total;Devuelto;Comprobante\n");
         foreach (var s in all.Items)
         {
             csv.AppendLine(string.Join(';', s.Number, s.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), s.SiteName, s.CustomerName,

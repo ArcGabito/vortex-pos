@@ -66,6 +66,11 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
 
     // ---------- IPosContext ----------
 
+    /// <summary>Rol efectivo en el POS: el que asignó el OrgAdmin en el hub, o <c>cajero</c> si no tiene.</summary>
+    public string Role => PosPermissions.Matrix.EffectiveRole(Session?.Access.Role, Session?.User.Role);
+
+    public bool Can(string permission) => PosPermissions.Matrix.Can(Session?.Access.Role, Session?.User.Role, permission);
+
     public Guid? UserId => Session?.User.Id;
     public string UserName => Session?.User.FullName ?? "";
     public string DeviceTag => DeviceIdentity.Tag(_deviceId);
@@ -176,6 +181,7 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
         var path = Path.Combine(FileSystem.AppDataDirectory, $"vortex-pos-{session.Access.OrganizationId:N}.db");
         Workspace = await PosWorkspace.OpenAsync(path, this);
         _sync = Workspace.SyncHandlers.Register(new VortexSync(_client!, _sessions!, Workspace.SyncStore, PosSyncHandlers.SyncOptions));
+        await ApplyRegionAsync();
         _pending = await Workspace.SyncStore.CountPendingAsync();
         _failed = (await Workspace.SyncStore.GetFailedAsync()).Count;
         _lastError = null;
@@ -330,6 +336,8 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
 
         await RefreshCountersAsync();
         if (hadData)
+            await ApplyRegionAsync();
+        if (hadData)
             DataChanged?.Invoke();
         Changed?.Invoke();
     }
@@ -346,6 +354,20 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Contadores de sincronización");
+        }
+    }
+
+    /// <summary>Formatos de fecha, número y moneda según el país de la empresa (el idioma llega en la fase de idiomas).</summary>
+    private async Task ApplyRegionAsync()
+    {
+        try
+        {
+            if (Workspace is not null && await Workspace.Master.GetCompanyAsync() is { } company)
+                Fmt.SetRegion(Fmt.Language, company.CountryCode, company.TimeZone);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Región de la empresa");
         }
     }
 

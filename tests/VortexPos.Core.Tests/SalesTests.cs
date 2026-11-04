@@ -142,7 +142,8 @@ public sealed class SalesTests : IAsyncLifetime
     [Fact]
     public void Totales_del_carrito_coinciden_con_los_de_la_venta()
     {
-        var totals = SalesService.Totals([(SalesService.LineTotal(2, 18.50m, 1), 1m, true), (2m, 0m, false)]);
+        var totals = SalesService.Totals([(SalesService.LineTotal(2, 18.50m, 1, "PEN"), 1m, "igv"), (2m, 0m, "exonerado")],
+            VortexApi.Suite.Taxes.TaxCatalog.For("PE"), "PEN");
         Assert.Equal(new SaleTotals(32.51m, 5.49m, 1m, 38m), totals);
     }
 }
