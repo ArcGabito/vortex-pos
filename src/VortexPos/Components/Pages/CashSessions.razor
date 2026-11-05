@@ -1,17 +1,17 @@
 @page "/turnos"
 @inherits PosPage
 
-<SectionContent SectionName="page-title">Turnos de caja</SectionContent>
+<SectionContent SectionName="page-title">@T("cashsessions.turnos_de_caja")</SectionContent>
 
 <div class="page">
     <div class="page-head">
         <div>
-            <h2>Turnos de caja</h2>
-            <p>Abre la caja con el fondo inicial y ciérrala con el arqueo: lo esperado contra lo que contaste.</p>
+            <h2>@T("cashsessions.turnos_de_caja")</h2>
+            <p>@T("cashsessions.abre_la_caja_con_el")</p>
         </div>
         @if (_open is null && !Loading)
         {
-            <button class="btn btn-dark" @onclick="StartOpen"><Icon Name="unlock" Size="18" />Abrir caja</button>
+            <button class="btn btn-dark" @onclick="StartOpen"><Icon Name="unlock" Size="18" />@T("cashsessions.abrir_caja")</button>
         }
     </div>
 
@@ -20,22 +20,22 @@
         <div class="card">
             <div class="card-head">
                 <div>
-                    <h3>Caja abierta · @s.Number</h3>
-                    <div class="sub">@s.SiteName · desde el @Fmt.DateTime(s.OpenedAt)@(s.OpenedBy is null ? "" : $" por {s.OpenedBy}")</div>
+                    <h3>@T("cashsessions.caja_abierta", s.Number)</h3>
+                    <div class="sub">@T("cashsessions.desde_el", s.SiteName, Fmt.DateTime(s.OpenedAt), (s.OpenedBy is null ? "" : T("cashsessions.por", s.OpenedBy)))</div>
                 </div>
                 <div style="display:flex;gap:8px">
-                    <a class="btn btn-sm" href="caja"><Icon Name="cart" Size="16" />Vender</a>
+                    <a class="btn btn-sm" href="caja"><Icon Name="cart" Size="16" />@T("cashsessions.vender")</a>
                     @if (Session.Can(PosPermissions.CloseCash))
                     {
-                        <button class="btn btn-dark btn-sm" @onclick="StartClose"><Icon Name="lock" Size="16" />Cerrar caja</button>
+                        <button class="btn btn-dark btn-sm" @onclick="StartClose"><Icon Name="lock" Size="16" />@T("cashsessions.cerrar_caja")</button>
                     }
                 </div>
             </div>
             <div class="stat-strip boxed" style="margin:0 20px 18px">
-                <StatTile Icon="receipt" Label="Ventas del turno" Value="@Fmt.Compact(sum.Sales)" Hint="@Fmt.Money(sum.SalesTotal, Currency)" />
-                <StatTile Icon="cash" Label="Fondo inicial" Value="@Fmt.Money(sum.OpeningFloat, Currency)" />
-                <StatTile Icon="cash" Label="Cobrado en efectivo" Value="@Fmt.Money(sum.CashSales, Currency)" Hint="@(sum.CashRefunds > 0 ? $"−{Fmt.Money(sum.CashRefunds, Currency)} en devoluciones" : null)" />
-                <StatTile Icon="wallet" Label="Efectivo esperado" Value="@Fmt.Money(sum.ExpectedCash, Currency)" />
+                <StatTile Icon="receipt" Label="@(T("cashsessions.ventas_del_turno"))" Value="@Fmt.Compact(sum.Sales)" Hint="@Fmt.Money(sum.SalesTotal, Currency)" />
+                <StatTile Icon="cash" Label="@(T("cashsessions.fondo_inicial"))" Value="@Fmt.Money(sum.OpeningFloat, Currency)" />
+                <StatTile Icon="cash" Label="@(T("cashsessions.cobrado_en_efectivo"))" Value="@Fmt.Money(sum.CashSales, Currency)" Hint="@(sum.CashRefunds > 0 ? T("cashsessions.en_devoluciones", (Fmt.Money(sum.CashRefunds, Currency))) : null)" />
+                <StatTile Icon="wallet" Label="@(T("cashsessions.efectivo_esperado"))" Value="@Fmt.Money(sum.ExpectedCash, Currency)" />
             </div>
             @if (sum.ByMethod.Count > 0)
             {
@@ -54,22 +54,22 @@
     }
     else if (!Loading)
     {
-        <div class="alert info"><Icon Name="lock" Size="18" /><span>La caja de este equipo está cerrada. Ábrela para empezar a vender.</span></div>
+        <div class="alert info"><Icon Name="lock" Size="18" /><span>@T("cashsessions.la_caja_de_este_equipo")</span></div>
     }
 
     <div class="card">
-        <div class="card-head"><h3>Historial de turnos</h3></div>
+        <div class="card-head"><h3>@T("cashsessions.historial_de_turnos")</h3></div>
         <div class="card-body" style="padding-top:0">
             @if (_history is { Total: 0 })
             {
-                <EmptyState Icon="clock" Title="Aún no hay turnos" Text="Cada apertura y cierre de esta caja queda registrado aquí." />
+                <EmptyState Icon="clock" Title="@(T("cashsessions.aun_no_hay_turnos"))" Text="@(T("cashsessions.cada_apertura_cierre_de_esta"))" />
             }
             else if (_history is { } h)
             {
                 <div class="table-wrap">
                     <table class="data">
                         <thead>
-                            <tr><th>Turno</th><th>Apertura</th><th>Cierre</th><th class="num">Ventas</th><th class="num">Esperado</th><th class="num">Contado</th><th class="num">Diferencia</th></tr>
+                            <tr><th>@T("cashsessions.turno")</th><th>@T("cashsessions.apertura")</th><th>@T("cashsessions.cierre")</th><th class="num">@T("cashsessions.ventas")</th><th class="num">@T("cashsessions.esperado")</th><th class="num">@T("cashsessions.contado")</th><th class="num">@T("cashsessions.diferencia")</th></tr>
                         </thead>
                         <tbody>
                             @foreach (var t in h.Items)
@@ -84,10 +84,10 @@
                                         }
                                         else
                                         {
-                                            <StatusPill Text="Abierta" Tone="good" />
+                                            <StatusPill Text="@(T("cashsessions.abierta"))" Tone="good" />
                                         }
                                     </td>
-                                    <td class="num">@Fmt.Money(t.SalesTotal, Currency)<div class="muted" style="font-size:12px">@Fmt.Count(t.Sales, "venta", "ventas")</div></td>
+                                    <td class="num">@Fmt.Money(t.SalesTotal, Currency)<div class="muted" style="font-size:12px">@Fmt.Count(t.Sales, T("count.venta"), T("count.ventas"))</div></td>
                                     <td class="num">@(t.ExpectedCash is { } e ? Fmt.Money(e, Currency) : "—")</td>
                                     <td class="num">@(t.CountedCash is { } c ? Fmt.Money(c, Currency) : "—")</td>
                                     <td class="num">
@@ -105,7 +105,7 @@
                         </tbody>
                     </table>
                 </div>
-                <Pager Page="h.Page" PageSize="h.PageSize" Total="h.Total" Noun="turnos" OnPage="async p => { _page = p; await ReloadAsync(); }" />
+                <Pager Page="h.Page" PageSize="h.PageSize" Total="h.Total" Noun="@(T("cashsessions.turnos"))" OnPage="async p => { _page = p; await ReloadAsync(); }" />
             }
         </div>
     </div>
@@ -113,43 +113,43 @@
 
 @if (_opening)
 {
-    <Modal Title="Abrir caja" Subtitle="@(_storeName is null ? "Elige primero la tienda de esta caja en Configuración." : $"Tienda {_storeName}")" Size="sm" Error="@_error" OnClose="() => _opening = false">
+    <Modal Title="@(T("cashsessions.abrir_caja"))" Subtitle="@(_storeName is null ? T("cashsessions.elige_primero_la_tienda_de") : T("cashsessions.tienda", _storeName))" Size="sm" Error="@_error" OnClose="() => _opening = false">
         <ChildContent>
             <div class="field">
-                <label>Fondo inicial en efectivo (@Fmt.Symbol(Currency))</label>
+                <label>@T("cashsessions.fondo_inicial_en_efectivo", Fmt.Symbol(Currency))</label>
                 <input class="control" type="number" min="0" step="0.10" @bind="_amount" />
             </div>
         </ChildContent>
         <Footer>
-            <button class="btn" @onclick="() => _opening = false">Cancelar</button>
-            <button class="btn btn-dark" disabled="@_busy" @onclick="OpenAsync">Abrir caja</button>
+            <button class="btn" @onclick="() => _opening = false">@T("cashsessions.cancelar")</button>
+            <button class="btn btn-dark" disabled="@_busy" @onclick="OpenAsync">@T("cashsessions.abrir_caja")</button>
         </Footer>
     </Modal>
 }
 
 @if (_closing && _summary is { } cs)
 {
-    <Modal Title="Cerrar caja" Subtitle="Cuenta el efectivo del cajón (fondo incluido)." Size="sm" Error="@_error" OnClose="() => _closing = false">
+    <Modal Title="@(T("cashsessions.cerrar_caja"))" Subtitle="@(T("cashsessions.cuenta_el_efectivo_del_cajon"))" Size="sm" Error="@_error" OnClose="() => _closing = false">
         <ChildContent>
             <dl class="totals">
-                <dt>Efectivo esperado</dt><dd>@Fmt.Money(cs.ExpectedCash, Currency)</dd>
+                <dt>@T("cashsessions.efectivo_esperado")</dt><dd>@Fmt.Money(cs.ExpectedCash, Currency)</dd>
             </dl>
             <div class="field">
-                <label>Efectivo contado (@Fmt.Symbol(Currency))</label>
+                <label>@T("cashsessions.efectivo_contado", Fmt.Symbol(Currency))</label>
                 <input class="control" type="number" min="0" step="0.10" @bind="_amount" @bind:event="oninput" />
             </div>
             <dl class="totals">
-                <dt class="grand">Diferencia</dt>
+                <dt class="grand">@T("cashsessions.diferencia")</dt>
                 <dd class="grand @(_amount - cs.ExpectedCash == 0 ? "good-text" : "warn-text")">@(_amount - cs.ExpectedCash > 0 ? "+" : "")@Fmt.Money(_amount - cs.ExpectedCash, Currency)</dd>
             </dl>
             <div class="field">
-                <label>Observación (opcional)</label>
-                <input class="control" placeholder="Explica la diferencia, si la hay" @bind="_note" />
+                <label>@T("cashsessions.observacion_opcional")</label>
+                <input class="control" placeholder="@(T("cashsessions.explica_la_diferencia_si_la"))" @bind="_note" />
             </div>
         </ChildContent>
         <Footer>
-            <button class="btn" @onclick="() => _closing = false">Cancelar</button>
-            <button class="btn btn-dark" disabled="@_busy" @onclick="CloseAsync">Cerrar caja</button>
+            <button class="btn" @onclick="() => _closing = false">@T("cashsessions.cancelar")</button>
+            <button class="btn btn-dark" disabled="@_busy" @onclick="CloseAsync">@T("cashsessions.cerrar_caja")</button>
         </Footer>
     </Modal>
 }
@@ -200,7 +200,7 @@
     private async Task OpenAsync()
     {
         _busy = true;
-        _error = await TryAsync(() => Pos.Cash.OpenAsync(_amount), "Caja abierta. ¡Buenas ventas!");
+        _error = await TryAsync(() => Pos.Cash.OpenAsync(_amount), T("cashsessions.caja_abierta_buenas_ventas"));
         _busy = false;
         if (_error is null)
             _opening = false;
@@ -217,7 +217,7 @@
         if (_error is null)
         {
             _closing = false;
-            Toasts.Success(diff == 0 ? "Caja cerrada sin diferencias." : $"Caja cerrada con una diferencia de {Fmt.Money(diff, Currency)}.");
+            Toasts.Success(diff == 0 ? T("cashsessions.caja_cerrada_sin_diferencias") : T("cashsessions.caja_cerrada_con_una_diferencia", (Fmt.Money(diff, Currency))));
         }
     }
 }
