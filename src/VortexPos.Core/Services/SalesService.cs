@@ -7,6 +7,8 @@ using VortexPos.Core.Domain;
 using VortexPos.Core.Integration;
 using VortexPos.Core.Sync;
 
+using static VortexPos.Core.Texts.CoreText;
+
 namespace VortexPos.Core.Services;
 
 /// <summary>
@@ -44,22 +46,22 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     public Task<SaleReceipt> CheckoutAsync(SaleDraft draft, CancellationToken ct = default)
     {
         RequirePermission(PosPermissions.Sell);
-        Require(draft.Lines.Count > 0, "Agrega al menos un artículo.");
-        Require(draft.Lines.All(l => l.Quantity > 0), "Las cantidades deben ser mayores que cero.");
-        Require(draft.Lines.All(l => l.Discount >= 0), "El descuento no puede ser negativo.");
-        Require(draft.Payments.Count > 0, "Elige cómo paga el cliente.");
-        Require(draft.Payments.All(p => PaymentMethods.All.Contains(p.Method)), "Medio de pago desconocido.");
-        Require(draft.Payments.All(p => p.Amount > 0), "Los montos de pago deben ser mayores que cero.");
-        Require(draft.Payments.Count(p => p.Method == PaymentMethods.Cash) <= 1, "Registra el efectivo en un solo pago.");
+        Require(draft.Lines.Count > 0, T("error.agrega_al_menos_un_articulo"));
+        Require(draft.Lines.All(l => l.Quantity > 0), T("error.las_cantidades_deben_ser_mayores"));
+        Require(draft.Lines.All(l => l.Discount >= 0), T("error.el_descuento_no_puede_ser"));
+        Require(draft.Payments.Count > 0, T("error.elige_como_paga_el_cliente"));
+        Require(draft.Payments.All(p => PaymentMethods.All.Contains(p.Method)), T("error.medio_de_pago_desconocido"));
+        Require(draft.Payments.All(p => p.Amount > 0), T("error.los_montos_de_pago_deben"));
+        Require(draft.Payments.Count(p => p.Method == PaymentMethods.Cash) <= 1, T("error.registra_el_efectivo_en_un"));
 
         return InTransactionAsync(async (c, tx, now) =>
         {
             var session = await CashService.OpenSessionAsync(c, tx);
-            Require(session is not null, "Abre la caja antes de vender.");
+            Require(session is not null, T("error.abre_la_caja_antes_de"));
             var siteId = draft.SiteId ?? session!.SiteId;
             if (draft.CustomerId is { } customer)
                 Require(await c.ScalarAsync<long>("SELECT COUNT(*) FROM parties WHERE id = $id AND is_deleted = 0", tx, ("$id", customer)) > 0,
-                    "El cliente no existe.");
+                    T("error.el_cliente_no_existe"));
 
             var regime = await TaxRegimeAsync(c, tx);
             var lines = new List<PricedLine>();
@@ -67,13 +69,13 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             {
                 var item = await c.FirstOrDefaultAsync("SELECT i.*, NULL AS on_hand FROM items i WHERE i.id = $id AND i.is_deleted = 0",
                     MasterDataService.ReadItem, tx, ("$id", cart.Key));
-                Require(item is not null, "Uno de los artículos ya no existe en el catálogo.");
-                Require(item!.IsActive, $"{item.Name} está inactivo y no se puede vender.");
+                Require(item is not null, T("error.uno_de_los_articulos_ya"));
+                Require(item!.IsActive, T("error.esta_inactivo_no_se_puede", item.Name));
                 var quantity = cart.Sum(l => l.Quantity);
                 var unitPrice = cart.First().UnitPrice ?? item.Price;
-                Require(unitPrice >= 0, "El precio no puede ser negativo.");
+                Require(unitPrice >= 0, T("error.el_precio_no_puede_ser"));
                 var discount = cart.Sum(l => l.Discount);
-                Require(discount <= quantity * unitPrice, $"El descuento de {item.Name} supera su importe.");
+                Require(discount <= quantity * unitPrice, T("error.el_descuento_de_supera_su", item.Name));
                 if (discount > quantity * unitPrice * PosPermissions.CashierDiscountLimit)
                     RequirePermission(PosPermissions.DiscountUnlimited);
                 lines.Add(new PricedLine(item, quantity, unitPrice, discount, LineTotal(quantity, unitPrice, discount, item.CurrencyCode)));
@@ -105,23 +107,23 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     private static List<PaymentDraft> Settle(IReadOnlyList<PaymentDraft> drafts, decimal total, Guid? customerId,
         out decimal? cashReceived, out decimal change)
     {
-        Require(!drafts.Any(p => p.Method == PaymentMethods.Credit) || customerId is not null, "Para vender al crédito elige el cliente.");
+        Require(!drafts.Any(p => p.Method == PaymentMethods.Credit) || customerId is not null, T("error.para_vender_al_credito_elige"));
         var nonCash = drafts.Where(p => p.Method != PaymentMethods.Cash).ToList();
         var nonCashTotal = nonCash.Sum(p => p.Amount);
-        Require(nonCashTotal <= total, "Los pagos con tarjeta, transferencia, billetera o crédito no pueden superar el total.");
+        Require(nonCashTotal <= total, T("error.los_pagos_con_tarjeta_transferencia"));
 
         var cash = drafts.FirstOrDefault(p => p.Method == PaymentMethods.Cash);
         var cashDue = total - nonCashTotal;
         var result = nonCash.Select(p => p with { Reference = Clean(p.Reference) }).ToList();
         if (cash is null)
         {
-            Require(cashDue == 0, $"Falta cobrar {cashDue:0.00}.");
+            Require(cashDue == 0, T("error.falta_cobrar", cashDue));
             cashReceived = null;
             change = 0;
             return result;
         }
 
-        Require(cash.Amount >= cashDue, $"El efectivo no alcanza: faltan {cashDue - cash.Amount:0.00}.");
+        Require(cash.Amount >= cashDue, T("error.el_efectivo_no_alcanza_faltan", (cashDue - cash.Amount)));
         cashReceived = cash.Amount;
         change = cash.Amount - cashDue;
         if (cashDue > 0)
@@ -135,13 +137,13 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     public Task VoidAsync(Guid saleId, string reason, CancellationToken ct = default)
     {
         RequirePermission(PosPermissions.Void);
-        Require(!string.IsNullOrWhiteSpace(reason), "Escribe el motivo de la anulación.");
+        Require(!string.IsNullOrWhiteSpace(reason), T("error.escribe_el_motivo_de_la"));
         return InTransactionAsync(async (c, tx, now) =>
         {
             var sale = await GetSaleAsync(c, tx, saleId);
-            Require(sale is not null, "La venta no existe.");
-            Require(sale!.Status == SaleStatuses.Completed, "La venta ya está anulada.");
-            Require(sale.Returned == 0, "La venta tiene devoluciones: no se puede anular.");
+            Require(sale is not null, T("error.la_venta_no_existe"));
+            Require(sale!.Status == SaleStatuses.Completed, T("error.la_venta_ya_esta_anulada"));
+            Require(sale.Returned == 0, T("error.la_venta_tiene_devoluciones_no"));
             await MarkVoidedAsync(c, tx, saleId, now, reason.Trim());
             await AuditAsync(c, tx, now, AuditActions.Voided, "sale", saleId, sale.Number, reason.Trim());
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleVoided, new SaleVoided(saleId, sale.Number, reason.Trim()),
@@ -155,21 +157,21 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     {
         RequirePermission(PosPermissions.Return);
         var requested = lines.Where(l => l.Quantity > 0).ToList();
-        Require(requested.Count > 0, "Indica qué artículos se devuelven.");
+        Require(requested.Count > 0, T("error.indica_que_articulos_se_devuelven"));
         return InTransactionAsync(async (c, tx, now) =>
         {
             var session = await CashService.OpenSessionAsync(c, tx);
-            Require(session is not null, "Abre la caja para devolver el dinero.");
+            Require(session is not null, T("error.abre_la_caja_para_devolver"));
             var sale = await GetSaleAsync(c, tx, saleId);
-            Require(sale is not null, "La venta no existe.");
-            Require(sale!.Status == SaleStatuses.Completed, "La venta está anulada.");
+            Require(sale is not null, T("error.la_venta_no_existe"));
+            Require(sale!.Status == SaleStatuses.Completed, T("error.la_venta_esta_anulada"));
 
             var saleLines = (await LinesAsync(c, tx, saleId)).ToDictionary(l => l.LineNo);
             var returned = new List<(SaleLineRow Line, decimal Quantity, decimal Total)>();
             foreach (var r in requested)
             {
-                Require(saleLines.TryGetValue(r.LineNo, out var line), "Una de las líneas no es de esta venta.");
-                Require(r.Quantity <= line!.Returnable, $"De {line.Name} solo se pueden devolver {line.Returnable:0.##}.");
+                Require(saleLines.TryGetValue(r.LineNo, out var line), T("error.una_de_las_lineas_no"));
+                Require(r.Quantity <= line!.Returnable, T("error.de_solo_se_pueden_devolver", line.Name, line.Returnable));
                 returned.Add((line, r.Quantity, Currencies.Get(sale.CurrencyCode).Round(line.Total * r.Quantity / line.Quantity)));
             }
 

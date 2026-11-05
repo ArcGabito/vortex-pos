@@ -9,8 +9,7 @@ namespace VortexPos.Services;
 /// </summary>
 public static class Txt
 {
-    public static readonly TextCatalog Catalog =
-        new TextCatalog().AddResources(typeof(VortexPos.Core.PosWorkspace).Assembly, "VortexPos.Core.Texts");
+    public static TextCatalog Catalog => VortexPos.Core.Texts.CoreText.Catalog;
 
     public static string T(string key, params object?[] args) => Catalog.Get(Fmt.Language, key, args);
 }

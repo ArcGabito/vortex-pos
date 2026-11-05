@@ -5,6 +5,8 @@ using VortexApi.Suite.Taxes;
 using VortexPos.Core.Data;
 using VortexPos.Core.Domain;
 
+using static VortexPos.Core.Texts.CoreText;
+
 namespace VortexPos.Core.Services;
 
 /// <summary>Base de los servicios: base local, contexto del usuario y reloj.</summary>
@@ -50,7 +52,7 @@ public abstract class PosService(PosDatabase db, IPosContext context, TimeProvid
     protected void RequirePermission(string permission)
     {
         if (!Context.Can(permission))
-            throw new PosValidationException($"Tu rol ({Context.Role}) no permite {PosPermissions.Describe(permission)}. Pide a un supervisor que lo haga.");
+            throw new PosValidationException(T("error.permiso_supervisor", Context.Role, PosPermissions.Describe(permission)));
     }
 
     /// <summary>Deja la acción en la bitácora, en la misma transacción que la acción.</summary>

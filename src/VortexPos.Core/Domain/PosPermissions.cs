@@ -1,5 +1,7 @@
 using VortexApi.Suite.Security;
 
+using static VortexPos.Core.Texts.CoreText;
+
 namespace VortexPos.Core.Domain;
 
 /// <summary>
@@ -38,15 +40,15 @@ public static class PosPermissions
 
     public static string Describe(string permission) => permission switch
     {
-        Sell => "vender",
-        DiscountUnlimited => "dar descuentos mayores al 10 %",
-        Void => "anular ventas",
-        Return => "registrar devoluciones",
-        OpenCash => "abrir la caja",
-        CloseCash => "cerrar la caja",
-        CreateCustomer => "registrar clientes",
-        EditCatalog => "editar el catálogo y las tiendas",
-        ViewAudit => "ver la auditoría",
+        Sell => T("permiso.sell"),
+        DiscountUnlimited => T("permiso.discountunlimited"),
+        Void => T("permiso.void"),
+        Return => T("permiso.return"),
+        OpenCash => T("permiso.opencash"),
+        CloseCash => T("permiso.closecash"),
+        CreateCustomer => T("permiso.createcustomer"),
+        EditCatalog => T("permiso.editcatalog"),
+        ViewAudit => T("permiso.viewaudit"),
         _ => permission,
     };
 }
