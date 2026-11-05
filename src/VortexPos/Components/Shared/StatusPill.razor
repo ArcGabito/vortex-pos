@@ -7,16 +7,16 @@
     [Parameter] public bool Plain { get; set; }
 
     public static (string Text, string Tone) ForSale(SaleRow sale) =>
-        sale.Status == SaleStatuses.Voided ? ("Anulada", "bad")
-        : sale.Returned >= sale.Total && sale.Total > 0 ? ("Devuelta", "neutral")
-        : sale.Returned > 0 ? ("Devolución parcial", "warn")
-        : ("Pagada", "good");
+        sale.Status == SaleStatuses.Voided ? (T("statuspill.anulada"), "bad")
+        : sale.Returned >= sale.Total && sale.Total > 0 ? (T("statuspill.devuelta"), "neutral")
+        : sale.Returned > 0 ? (T("statuspill.devolucion_parcial"), "warn")
+        : (T("statuspill.pagada"), "good");
 
     public static (string Text, string Tone) ForStock(decimal? onHand) => onHand switch
     {
-        null => ("Sin dato", "neutral"),
+        null => (T("statuspill.sin_dato"), "neutral"),
         <= 0 => ("Agotado", "bad"),
         < 5 => ("Pocas unidades", "warn"),
-        _ => ("En stock", "good"),
+        _ => (T("statuspill.en_stock"), "good"),
     };
 }

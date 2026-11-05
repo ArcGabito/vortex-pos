@@ -1,30 +1,30 @@
 @page "/"
 @inherits PosPage
 
-<SectionContent SectionName="page-title">Panel</SectionContent>
+<SectionContent SectionName="page-title">@T("home.panel")</SectionContent>
 
 @if (_summary is { } s)
 {
     <div class="stat-strip">
-        <StatTile Icon="wallet" Label="Vendido hoy" Value="@Fmt.MoneyCompact(s.SalesToday, s.CurrencyCode)" Delta="s.SalesChangePct" Hint="@(s.SalesChangePct is null ? null : "vs. ayer a esta hora")" />
-        <StatTile Icon="receipt" Label="Tickets hoy" Value="@Fmt.Compact(s.TicketsToday)" Hint="@($"promedio {Fmt.Money(s.AverageTicket, s.CurrencyCode)}")" />
-        <StatTile Icon="arrows" Label="Últimos 7 días" Value="@Fmt.MoneyCompact(s.Sales7d, s.CurrencyCode)" />
-        <StatTile Icon="ban" Label="Anuladas" Value="@Fmt.Compact(s.Voided7d)" UpIsGood="false" Hint="últimos 7 días" />
+        <StatTile Icon="wallet" Label="@(T("home.vendido_hoy"))" Value="@Fmt.MoneyCompact(s.SalesToday, s.CurrencyCode)" Delta="s.SalesChangePct" Hint="@(s.SalesChangePct is null ? null : T("home.vs_ayer_esta_hora"))" />
+        <StatTile Icon="receipt" Label="@(T("home.tickets_hoy"))" Value="@Fmt.Compact(s.TicketsToday)" Hint="@(T("home.promedio", (Fmt.Money(s.AverageTicket, s.CurrencyCode))))" />
+        <StatTile Icon="arrows" Label="@(T("home.ultimos_7_dias"))" Value="@Fmt.MoneyCompact(s.Sales7d, s.CurrencyCode)" />
+        <StatTile Icon="ban" Label="@(T("home.anuladas"))" Value="@Fmt.Compact(s.Voided7d)" UpIsGood="false" Hint="@(T("home.ultimos_7_dias_2"))" />
     </div>
 }
 
 <div class="page">
     <div class="page-head">
         <div>
-            <h2>Hola, @FirstName</h2>
-            <p>@Session.Session?.Access.OrganizationName · @(_cash is { } c ? $"Caja abierta en {c.SiteName} desde las {c.OpenedAt.ToLocalTime():HH:mm}" : "La caja está cerrada")</p>
+            <h2>@T("home.hola", FirstName)</h2>
+            <p>@Session.Session?.Access.OrganizationName · @(_cash is { } c ? T("home.caja_abierta_en_desde_las", c.SiteName, c.OpenedAt.ToLocalTime()) : T("home.la_caja_esta_cerrada"))</p>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
             @if (_cash is null)
             {
-                <a class="btn btn-outline" href="turnos?abrir=1"><Icon Name="unlock" Size="18" />Abrir caja</a>
+                <a class="btn btn-outline" href="turnos?abrir=1"><Icon Name="unlock" Size="18" />@T("home.abrir_caja")</a>
             }
-            <a class="btn btn-dark" href="caja"><Icon Name="cart" Size="18" />Vender</a>
+            <a class="btn btn-dark" href="caja"><Icon Name="cart" Size="18" />@T("home.vender")</a>
         </div>
     </div>
 
@@ -32,28 +32,28 @@
         <div class="card">
             <div class="card-head">
                 <div>
-                    <h3>Ventas recientes</h3>
-                    <div class="sub">Las últimas de todas las cajas</div>
+                    <h3>@T("home.ventas_recientes")</h3>
+                    <div class="sub">@T("home.las_ultimas_de_todas_las")</div>
                 </div>
-                <a class="btn btn-sm" href="ventas">Ver todas</a>
+                <a class="btn btn-sm" href="ventas">@T("home.ver_todas")</a>
             </div>
             <div class="card-body" style="padding-top:12px">
                 @if (_recent.Count == 0)
                 {
-                    <EmptyState Icon="receipt" Title="Aún no hay ventas" Text="Abre la caja y registra tu primera venta." />
+                    <EmptyState Icon="receipt" Title="@(T("home.aun_no_hay_ventas"))" Text="@(T("home.abre_la_caja_registra_tu"))" />
                 }
                 else
                 {
                     <div class="table-wrap">
                         <table class="data" style="min-width:520px">
-                            <thead><tr><th>Venta</th><th>Cliente</th><th>Estado</th><th class="num">Total</th><th class="num">Cuándo</th></tr></thead>
+                            <thead><tr><th>@T("home.venta")</th><th>@T("home.cliente")</th><th>@T("home.estado")</th><th class="num">@T("home.total")</th><th class="num">@T("home.cuando")</th></tr></thead>
                             <tbody>
                                 @foreach (var r in _recent)
                                 {
                                     var (text, tone) = StatusPill.ForSale(r);
                                     <tr>
                                         <td><div class="two-line"><span class="t1">@r.Number</span><span class="t2">@r.SiteName</span></div></td>
-                                        <td><span class="muted">@(r.CustomerName ?? "Clientes varios")</span></td>
+                                        <td><span class="muted">@(r.CustomerName ?? T("home.clientes_varios"))</span></td>
                                         <td><StatusPill Text="@text" Tone="@tone" /></td>
                                         <td class="num strong">@Fmt.Money(r.Total, r.CurrencyCode)</td>
                                         <td class="num muted">@Fmt.Ago(r.CreatedAt)</td>
@@ -70,14 +70,14 @@
             <div class="card">
                 <div class="card-head">
                     <div>
-                        <h3>Cobrado hoy</h3>
-                        <div class="sub">Por medio de pago</div>
+                        <h3>@T("home.cobrado_hoy")</h3>
+                        <div class="sub">@T("home.por_medio_de_pago")</div>
                     </div>
                 </div>
                 <div class="card-body">
                     @if (_summary is not { ByMethodToday.Count: > 0 } sum)
                     {
-                        <div class="list-row"><span class="muted">Sin cobros hoy.</span></div>
+                        <div class="list-row"><span class="muted">@T("home.sin_cobros_hoy")</span></div>
                     }
                     else
                     {
@@ -98,20 +98,20 @@
             <div class="card">
                 <div class="card-head">
                     <div>
-                        <h3>Lo más vendido</h3>
-                        <div class="sub">Últimos 7 días</div>
+                        <h3>@T("home.lo_mas_vendido")</h3>
+                        <div class="sub">@T("home.ultimos_7_dias")</div>
                     </div>
                 </div>
                 <div class="card-body">
                     @if (_top.Count == 0)
                     {
-                        <div class="list-row"><span class="muted">Todavía no hay ventas esta semana.</span></div>
+                        <div class="list-row"><span class="muted">@T("home.todavia_no_hay_ventas_esta")</span></div>
                     }
                     @foreach (var item in _top)
                     {
                         <div class="list-row">
                             <Avatar Text="@item.Name" Size="36" />
-                            <div class="two-line"><span class="t1">@item.Name</span><span class="t2">@Fmt.Qty(item.Quantity) vendidos</span></div>
+                            <div class="two-line"><span class="t1">@item.Name</span><span class="t2">@T("home.vendidos", Fmt.Qty(item.Quantity))</span></div>
                             <strong class="end">@Fmt.Money(item.Total, _summary?.CurrencyCode ?? "PEN")</strong>
                         </div>
                     }

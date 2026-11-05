@@ -1,7 +1,7 @@
 @page "/caja"
 @inherits PosPage
 
-<SectionContent SectionName="page-title">Vender</SectionContent>
+<SectionContent SectionName="page-title">@T("register.vender")</SectionContent>
 
 @if (Loading)
 {
@@ -10,8 +10,8 @@
 else if (_session is null)
 {
     <div class="page">
-        <EmptyState Icon="lock" Title="La caja está cerrada" Text="Abre un turno con el fondo de caja para empezar a vender.">
-            <a class="btn btn-dark" href="turnos?abrir=1"><Icon Name="unlock" Size="18" />Abrir caja</a>
+        <EmptyState Icon="lock" Title="@(T("register.la_caja_esta_cerrada"))" Text="@(T("register.abre_un_turno_con_el"))">
+            <a class="btn btn-dark" href="turnos?abrir=1"><Icon Name="unlock" Size="18" />@T("register.abrir_caja")</a>
         </EmptyState>
     </div>
 }
@@ -23,7 +23,7 @@ else
             @if (_categories.Count > 0)
             {
                 <div class="chips">
-                    <button class="chip @(_category == "" ? "on" : "")" @onclick="@(() => SetCategoryAsync(""))">Todo</button>
+                    <button class="chip @(_category == "" ? "on" : "")" @onclick="@(() => SetCategoryAsync(""))">@T("register.todo")</button>
                     @foreach (var category in _categories)
                     {
                         <button class="chip @(_category == category ? "on" : "")" @onclick="() => SetCategoryAsync(category)">@category</button>
@@ -32,7 +32,7 @@ else
             }
             @if (_tiles.Count == 0)
             {
-                <EmptyState Icon="tag" Title="No hay artículos" Text="El catálogo llega desde el hub, o puedes crear artículos en Catálogo → Artículos." />
+                <EmptyState Icon="tag" Title="@(T("register.no_hay_articulos"))" Text="@(T("register.el_catalogo_llega_desde_el"))" />
             }
             else
             {
@@ -45,7 +45,7 @@ else
                             <span class="price">@Fmt.Money(item.Price, item.CurrencyCode)</span>
                             @if (item.TrackInventory && item.OnHand is { } onHand)
                             {
-                                <span class="stock @(onHand <= 0 ? "out" : "")">@Fmt.Qty(onHand) en tienda</span>
+                                <span class="stock @(onHand <= 0 ? "out" : "")">@T("register.en_tienda", Fmt.Qty(onHand))</span>
                             }
                         </button>
                     }
@@ -56,19 +56,19 @@ else
         <aside class="card register-cart">
             <div class="card-head">
                 <div>
-                    <h3>Venta actual</h3>
+                    <h3>@T("register.venta_actual")</h3>
                     <div class="sub">@_session.SiteName · @_session.Number</div>
                 </div>
                 @if (_cart.Count > 0)
                 {
-                    <button class="btn btn-ghost btn-sm" @onclick="Clear"><Icon Name="trash" Size="16" />Vaciar</button>
+                    <button class="btn btn-ghost btn-sm" @onclick="Clear"><Icon Name="trash" Size="16" />@T("register.vaciar")</button>
                 }
             </div>
             <div class="card-body cart-body">
                 <div class="field">
-                    <label>Cliente</label>
+                    <label>@T("register.cliente")</label>
                     <select class="select" @bind="_customerId">
-                        <option value="">Clientes varios</option>
+                        <option value="">@T("register.clientes_varios")</option>
                         @foreach (var c in _customers)
                         {
                             <option value="@c.Id">@c.Label@(c.Detail is null ? "" : $" · {c.Detail}")</option>
@@ -80,7 +80,7 @@ else
                 {
                     <div class="cart-empty">
                         <Icon Name="cart" Size="28" />
-                        <span>Escanea un código o toca un artículo para agregarlo.</span>
+                        <span>@T("register.escanea_un_codigo_toca_un")</span>
                     </div>
                 }
                 else
@@ -94,14 +94,14 @@ else
                                     <span class="t2">@Fmt.Money(line.UnitPrice, line.Item.CurrencyCode) c/u@(line.Discount > 0 ? $" · −{Fmt.Money(line.Discount, line.Item.CurrencyCode)}" : "")</span>
                                 </div>
                                 <div class="qty">
-                                    <button class="btn btn-ghost icon-btn sm" @onclick="() => Step(line, -1)" aria-label="Quitar uno"><Icon Name="minus" Size="16" /></button>
-                                    <input class="control" type="number" min="0" step="any" @bind="line.Quantity" @bind:event="oninput" aria-label="Cantidad" />
-                                    <button class="btn btn-ghost icon-btn sm" @onclick="() => Step(line, 1)" aria-label="Agregar uno"><Icon Name="plus" Size="16" /></button>
+                                    <button class="btn btn-ghost icon-btn sm" @onclick="() => Step(line, -1)" aria-label="@(T("register.quitar_uno"))"><Icon Name="minus" Size="16" /></button>
+                                    <input class="control" type="number" min="0" step="any" @bind="line.Quantity" @bind:event="oninput" aria-label="@(T("register.cantidad"))" />
+                                    <button class="btn btn-ghost icon-btn sm" @onclick="() => Step(line, 1)" aria-label="@(T("register.agregar_uno"))"><Icon Name="plus" Size="16" /></button>
                                 </div>
                                 <strong class="amount">@Fmt.Money(line.Total, line.Item.CurrencyCode)</strong>
                                 <KebabMenu>
-                                    <button @onclick="() => EditDiscount(line)"><Icon Name="tag" Size="18" />Descuento</button>
-                                    <button class="danger" @onclick="() => _cart.Remove(line)"><Icon Name="x" Size="18" />Quitar</button>
+                                    <button @onclick="() => EditDiscount(line)"><Icon Name="tag" Size="18" />@T("register.descuento")</button>
+                                    <button class="danger" @onclick="() => _cart.Remove(line)"><Icon Name="x" Size="18" />@T("register.quitar")</button>
                                 </KebabMenu>
                             </div>
                         }
@@ -109,16 +109,16 @@ else
                 }
 
                 <dl class="totals">
-                    <dt>Subtotal</dt><dd>@Fmt.Money(Totals.Subtotal, Currency)</dd>
-                    <dt>@_regime.TaxName@(_regime.PricesIncludeTax ? " incluido" : "")</dt><dd>@Fmt.Money(Totals.Tax, Currency)</dd>
+                    <dt>@T("register.subtotal")</dt><dd>@Fmt.Money(Totals.Subtotal, Currency)</dd>
+                    <dt>@_regime.TaxName@(_regime.PricesIncludeTax ? T("register.incluido") : "")</dt><dd>@Fmt.Money(Totals.Tax, Currency)</dd>
                     @if (Totals.Discount > 0)
                     {
-                        <dt>Descuentos</dt><dd>−@Fmt.Money(Totals.Discount, Currency)</dd>
+                        <dt>@T("register.descuentos")</dt><dd>−@Fmt.Money(Totals.Discount, Currency)</dd>
                     }
-                    <dt class="grand">Total</dt><dd class="grand">@Fmt.Money(Totals.Total, Currency)</dd>
+                    <dt class="grand">@T("register.total")</dt><dd class="grand">@Fmt.Money(Totals.Total, Currency)</dd>
                 </dl>
                 <button class="btn btn-accent btn-block btn-lg" disabled="@(!CanCharge)" @onclick="OpenPayment">
-                    <Icon Name="cash" Size="20" />Cobrar @Fmt.Money(Totals.Total, Currency)
+                    <Icon Name="cash" Size="20" />@T("register.cobrar", (Fmt.Money(Totals.Total, Currency)))
                 </button>
             </div>
         </aside>
@@ -127,30 +127,30 @@ else
 
 @if (_discountFor is { } d)
 {
-    <Modal Title="Descuento" Subtitle="@d.Item.Name" Size="sm" Error="@_error" OnClose="() => _discountFor = null">
+    <Modal Title="@(T("register.descuento"))" Subtitle="@d.Item.Name" Size="sm" Error="@_error" OnClose="() => _discountFor = null">
         <ChildContent>
             <div class="field">
-                <label>Monto de descuento de la línea (@Fmt.Symbol(d.Item.CurrencyCode))</label>
+                <label>@T("register.monto_de_descuento_de_la", Fmt.Symbol(d.Item.CurrencyCode))</label>
                 <input class="control" type="number" min="0" step="0.10" @bind="_discount" />
             </div>
         </ChildContent>
         <Footer>
-            <button class="btn" @onclick="() => _discountFor = null">Cancelar</button>
-            <button class="btn btn-dark" @onclick="ApplyDiscount">Aplicar</button>
+            <button class="btn" @onclick="() => _discountFor = null">@T("register.cancelar")</button>
+            <button class="btn btn-dark" @onclick="ApplyDiscount">@T("register.aplicar")</button>
         </Footer>
     </Modal>
 }
 
 @if (_paying)
 {
-    <Modal Title="@($"Cobrar {Fmt.Money(Totals.Total, Currency)}")" Subtitle="Puedes combinar medios de pago." Error="@_error" OnClose="() => _paying = false">
+    <Modal Title="@(T("register.cobrar", (Fmt.Money(Totals.Total, Currency))))" Subtitle="@(T("register.puedes_combinar_medios_de_pago"))" Error="@_error" OnClose="() => _paying = false">
         <ChildContent>
             <div class="methods">
                 @foreach (var method in PaymentMethods.All)
                 {
                     <button class="method @(_payments.ContainsKey(method) ? "on" : "")" @onclick="() => ToggleMethod(method)"
                             disabled="@(method == PaymentMethods.Credit && _customerId is null)"
-                            title="@(method == PaymentMethods.Credit && _customerId is null ? "Elige un cliente para vender al crédito" : null)">
+                            title="@(method == PaymentMethods.Credit && _customerId is null ? T("register.elige_un_cliente_para_vender") : null)">
                         <Icon Name="@Fmt.PaymentIcon(method)" Size="22" />@Fmt.PaymentMethod(method)
                     </button>
                 }
@@ -160,14 +160,14 @@ else
                 var m = method;
                 <div class="form-row">
                     <div class="field">
-                        <label>@(m == PaymentMethods.Cash ? "Efectivo recibido" : Fmt.PaymentMethod(m))</label>
+                        <label>@(m == PaymentMethods.Cash ? T("register.efectivo_recibido") : Fmt.PaymentMethod(m))</label>
                         <input class="control" type="number" min="0" step="0.10" value="@amount"
                                @onchange="e => _payments[m] = decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0" />
                     </div>
                     @if (m == PaymentMethods.Cash)
                     {
                         <div class="field">
-                            <label>Billetes rápidos</label>
+                            <label>@T("register.billetes_rapidos")</label>
                             <div style="display:flex;gap:6px;flex-wrap:wrap">
                                 @foreach (var bill in QuickCash())
                                 {
@@ -179,49 +179,49 @@ else
                     else if (m is PaymentMethods.Card or PaymentMethods.Transfer or PaymentMethods.Wallet)
                     {
                         <div class="field">
-                            <label>Referencia (opcional)</label>
-                            <input class="control" placeholder="@(m == PaymentMethods.Card ? "VISA 1234" : "N.° de operación")" @bind="_references[m]" />
+                            <label>@T("register.referencia_opcional")</label>
+                            <input class="control" placeholder="@(m == PaymentMethods.Card ? T("register.visa_1234") : T("register.de_operacion"))" @bind="_references[m]" />
                         </div>
                     }
                 </div>
             }
             <dl class="totals">
-                <dt>Total</dt><dd>@Fmt.Money(Totals.Total, Currency)</dd>
-                <dt>Pagado</dt><dd>@Fmt.Money(Paid, Currency)</dd>
+                <dt>@T("register.total")</dt><dd>@Fmt.Money(Totals.Total, Currency)</dd>
+                <dt>@T("register.pagado")</dt><dd>@Fmt.Money(Paid, Currency)</dd>
                 @if (Paid >= Totals.Total)
                 {
-                    <dt class="grand">Vuelto</dt><dd class="grand good-text">@Fmt.Money(Paid - Totals.Total, Currency)</dd>
+                    <dt class="grand">@T("register.vuelto")</dt><dd class="grand good-text">@Fmt.Money(Paid - Totals.Total, Currency)</dd>
                 }
                 else
                 {
-                    <dt class="grand">Falta</dt><dd class="grand warn-text">@Fmt.Money(Totals.Total - Paid, Currency)</dd>
+                    <dt class="grand">@T("register.falta")</dt><dd class="grand warn-text">@Fmt.Money(Totals.Total - Paid, Currency)</dd>
                 }
             </dl>
         </ChildContent>
         <Footer>
-            <button class="btn" @onclick="() => _paying = false">Volver</button>
-            <button class="btn btn-dark" disabled="@(_busy || Paid < Totals.Total)" @onclick="ChargeAsync"><Icon Name="check" Size="18" />Confirmar cobro</button>
+            <button class="btn" @onclick="() => _paying = false">@T("register.volver")</button>
+            <button class="btn btn-dark" disabled="@(_busy || Paid < Totals.Total)" @onclick="ChargeAsync"><Icon Name="check" Size="18" />@T("register.confirmar_cobro")</button>
         </Footer>
     </Modal>
 }
 
 @if (_receipt is { } r)
 {
-    <Modal Title="Venta registrada" Subtitle="@r.Number" Size="sm" OnClose="NewSale">
+    <Modal Title="@(T("register.venta_registrada"))" Subtitle="@r.Number" Size="sm" OnClose="NewSale">
         <ChildContent>
             <div class="receipt-done">
                 <div class="em-icon"><Icon Name="check" Size="28" Stroke="2.4" /></div>
                 <strong>@Fmt.Money(r.Total, Currency)</strong>
                 @if (r.Change > 0)
                 {
-                    <span class="change">Vuelto: <b>@Fmt.Money(r.Change, Currency)</b></span>
+                    <span class="change">@T("register.vuelto_2") <b>@Fmt.Money(r.Change, Currency)</b></span>
                 }
-                <span class="muted">Se guardó en este equipo y se enviará al hub (WMS y ERP) al sincronizar.</span>
+                <span class="muted">@T("register.se_guardo_en_este_equipo")</span>
             </div>
         </ChildContent>
         <Footer>
-            <a class="btn" href="ventas">Ver ventas</a>
-            <button class="btn btn-dark" @onclick="NewSale">Nueva venta</button>
+            <a class="btn" href="ventas">@T("register.ver_ventas")</a>
+            <button class="btn btn-dark" @onclick="NewSale">@T("register.nueva_venta")</button>
         </Footer>
     </Modal>
 }
@@ -314,7 +314,7 @@ else
             return;
         if (_discount < 0 || _discount > line.Quantity * line.UnitPrice)
         {
-            _error = "El descuento debe estar entre cero y el importe de la línea.";
+            _error = T("register.el_descuento_debe_estar_entre");
             return;
         }
         line.Discount = _discount;

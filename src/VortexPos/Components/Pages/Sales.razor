@@ -2,40 +2,40 @@
 @inherits PosPage
 @inject FileExporter Exporter
 
-<SectionContent SectionName="page-title">Ventas</SectionContent>
+<SectionContent SectionName="page-title">@T("sales.ventas_2")</SectionContent>
 
 <div class="page">
     <div class="page-head">
         <div>
-            <h2>Ventas</h2>
-            <p>Las de esta caja y las de las demás cajas de la organización. Desde aquí se anulan y se registran devoluciones.</p>
+            <h2>@T("sales.ventas_2")</h2>
+            <p>@T("sales.las_de_esta_caja_las")</p>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <button class="btn btn-outline" @onclick="ExportAsync"><Icon Name="download" Size="18" />Exportar CSV</button>
-            <a class="btn btn-dark" href="caja"><Icon Name="cart" Size="18" />Nueva venta</a>
+            <button class="btn btn-outline" @onclick="ExportAsync"><Icon Name="download" Size="18" />@T("sales.exportar_csv")</button>
+            <a class="btn btn-dark" href="caja"><Icon Name="cart" Size="18" />@T("sales.nueva_venta")</a>
         </div>
     </div>
 
     <div class="filters">
         <div class="field search">
-            <label>Buscar</label>
+            <label>@T("sales.buscar")</label>
             <div class="input-icon">
                 <Icon Name="search" Size="16" />
-                <input class="control" placeholder="Número, cliente o comprobante" value="@_search" @oninput="OnSearchInput" />
+                <input class="control" placeholder="@(T("sales.numero_cliente_comprobante"))" value="@_search" @oninput="OnSearchInput" />
             </div>
         </div>
         <div class="field">
-            <label>Desde</label>
+            <label>@T("sales.desde")</label>
             <input class="control" type="date" value="@_from?.ToString("yyyy-MM-dd")" @onchange="async e => { _from = ParseDate(e.Value); _page = 1; await ReloadAsync(); }" />
         </div>
         <div class="field">
-            <label>Hasta</label>
+            <label>@T("sales.hasta")</label>
             <input class="control" type="date" value="@_to?.ToString("yyyy-MM-dd")" @onchange="async e => { _to = ParseDate(e.Value); _page = 1; await ReloadAsync(); }" />
         </div>
         <div class="field">
-            <label>Tienda</label>
+            <label>@T("sales.tienda")</label>
             <select class="select" value="@_site" @onchange="async e => { _site = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null; _page = 1; await ReloadAsync(); }">
-                <option value="">Todas</option>
+                <option value="">@T("sales.todas")</option>
                 @foreach (var site in _sites)
                 {
                     <option value="@site.Id">@site.Name</option>
@@ -43,7 +43,7 @@
             </select>
         </div>
         <div class="field" style="width:auto">
-            <label>Estado</label>
+            <label>@T("sales.estado")</label>
             <div class="segmented">
                 @foreach (var (value, label) in Tabs)
                 {
@@ -57,7 +57,7 @@
     {
         @if (page.Total == 0 && !Loading)
         {
-            <EmptyState Icon="receipt" Title="No hay ventas" Text="Las ventas que registres en Vender aparecen aquí." />
+            <EmptyState Icon="receipt" Title="@(T("sales.no_hay_ventas"))" Text="@(T("sales.las_ventas_que_registres_en"))" />
         }
         else
         {
@@ -65,12 +65,12 @@
                 <table class="data">
                     <thead>
                         <tr>
-                            <th>Venta</th>
-                            <th>Cliente</th>
-                            <th>Tienda</th>
-                            <th class="num">Total</th>
-                            <th>Estado</th>
-                            <th class="actions-col">Acciones</th>
+                            <th>@T("sales.venta_2")</th>
+                            <th>@T("sales.cliente")</th>
+                            <th>@T("sales.tienda")</th>
+                            <th class="num">@T("sales.total")</th>
+                            <th>@T("sales.estado")</th>
+                            <th class="actions-col">@T("sales.acciones")</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -81,13 +81,13 @@
                                 <td>
                                     <div class="two-line">
                                         <span class="t1">@s.Number</span>
-                                        <span class="t2">@Fmt.DateTime(s.CreatedAt)@(s.UserName is null ? "" : $" · {s.UserName}")@(s.Origin == "remote" ? " · otra caja" : "")</span>
+                                        <span class="t2">@Fmt.DateTime(s.CreatedAt)@(s.UserName is null ? "" : $" · {s.UserName}")@(s.Origin == "remote" ? T("sales.otra_caja") : "")</span>
                                     </div>
                                 </td>
                                 <td>
                                     <div class="two-line">
-                                        <span class="t1" style="font-weight:600">@(s.CustomerName ?? "Clientes varios")</span>
-                                        <span class="t2">@(s.InvoiceNumber is { } inv ? $"Comprobante {inv}" : $"{Fmt.Qty(s.Items)} artículos")</span>
+                                        <span class="t1" style="font-weight:600">@(s.CustomerName ?? T("sales.clientes_varios"))</span>
+                                        <span class="t2">@(s.InvoiceNumber is { } inv ? T("sales.comprobante_n", inv) : T("sales.n_articulos", Fmt.Qty(s.Items)))</span>
                                     </div>
                                 </td>
                                 <td><span class="muted">@s.SiteName</span></td>
@@ -95,14 +95,14 @@
                                 <td><StatusPill Text="@text" Tone="@tone" /></td>
                                 <td class="actions-col" @onclick:stopPropagation>
                                     <KebabMenu>
-                                        <button @onclick="() => OpenAsync(s)"><Icon Name="receipt" Size="18" />Ver detalle</button>
+                                        <button @onclick="() => OpenAsync(s)"><Icon Name="receipt" Size="18" />@T("sales.ver_detalle")</button>
                                         @if (s.CanReturn && Session.Can(PosPermissions.Return))
                                         {
-                                            <button @onclick="() => StartReturnAsync(s)"><Icon Name="undo" Size="18" />Registrar devolución</button>
+                                            <button @onclick="() => StartReturnAsync(s)"><Icon Name="undo" Size="18" />@T("sales.registrar_devolucion")</button>
                                         }
                                         @if (s.CanVoid && Session.Can(PosPermissions.Void))
                                         {
-                                            <button class="danger" @onclick="() => StartVoid(s)"><Icon Name="ban" Size="18" />Anular</button>
+                                            <button class="danger" @onclick="() => StartVoid(s)"><Icon Name="ban" Size="18" />@T("sales.anular_2")</button>
                                         }
                                     </KebabMenu>
                                 </td>
@@ -111,27 +111,27 @@
                     </tbody>
                 </table>
             </div>
-            <Pager Page="page.Page" PageSize="page.PageSize" Total="page.Total" Noun="ventas" OnPage="async p => { _page = p; await ReloadAsync(); }" />
+            <Pager Page="page.Page" PageSize="page.PageSize" Total="page.Total" Noun="@(T("sales.ventas"))" OnPage="async p => { _page = p; await ReloadAsync(); }" />
         }
     }
 </div>
 
 @if (_detail is { } d)
 {
-    <Modal Title="@($"Venta {d.Number}")" Subtitle="@($"{Fmt.DateTime(d.CreatedAt)} · {d.SiteName}")" Size="lg" OnClose="() => _detail = null">
+    <Modal Title="@(T("sales.venta", d.Number))" Subtitle="@($"{Fmt.DateTime(d.CreatedAt)} · {d.SiteName}")" Size="lg" OnClose="() => _detail = null">
         <ChildContent>
             @{ var (text, tone) = StatusPill.ForSale(d); }
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                 <StatusPill Text="@text" Tone="@tone" />
-                <span class="muted">@(d.CustomerName ?? "Clientes varios")@(d.UserName is null ? "" : $" · atendió {d.UserName}")</span>
+                <span class="muted">@(d.CustomerName ?? T("sales.clientes_varios"))@(d.UserName is null ? "" : T("sales.atendio", d.UserName))</span>
             </div>
             @if (d.VoidReason is not null)
             {
-                <div class="alert warn"><Icon Name="ban" Size="18" /><span>Anulada el @Fmt.DateTime(d.VoidedAt!.Value): @d.VoidReason</span></div>
+                <div class="alert warn"><Icon Name="ban" Size="18" /><span>@T("sales.anulada_el", Fmt.DateTime(d.VoidedAt!.Value), d.VoidReason)</span></div>
             }
             <div class="table-wrap">
                 <table class="data" style="min-width:480px">
-                    <thead><tr><th>Artículo</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead>
+                    <thead><tr><th>@T("sales.articulo")</th><th class="num">@T("sales.cant")</th><th class="num">@T("sales.precio")</th><th class="num">@T("sales.importe")</th></tr></thead>
                     <tbody>
                         @foreach (var l in _lines)
                         {
@@ -139,7 +139,7 @@
                                 <td>
                                     <div class="two-line">
                                         <span class="t1">@l.Name</span>
-                                        <span class="t2">#@l.Sku@(l.Discount > 0 ? $" · desc. {Fmt.Money(l.Discount, d.CurrencyCode)}" : "")@(l.ReturnedQty > 0 ? $" · devuelto {Fmt.Qty(l.ReturnedQty)}" : "")</span>
+                                        <span class="t2">#@l.Sku@(l.Discount > 0 ? T("sales.desc", (Fmt.Money(l.Discount, d.CurrencyCode))) : "")@(l.ReturnedQty > 0 ? T("sales.devuelto", Fmt.Qty(l.ReturnedQty)) : "")</span>
                                     </div>
                                 </td>
                                 <td class="num">@Fmt.Qty(l.Quantity)</td>
@@ -159,25 +159,25 @@
                     }
                     @if (d.CashReceived is { } received)
                     {
-                        <dt>Efectivo recibido</dt><dd>@Fmt.Money(received, d.CurrencyCode)</dd>
-                        <dt>Vuelto</dt><dd>@Fmt.Money(d.ChangeGiven ?? 0, d.CurrencyCode)</dd>
+                        <dt>@T("sales.efectivo_recibido")</dt><dd>@Fmt.Money(received, d.CurrencyCode)</dd>
+                        <dt>@T("sales.vuelto")</dt><dd>@Fmt.Money(d.ChangeGiven ?? 0, d.CurrencyCode)</dd>
                     }
                     @if (d.InvoiceNumber is not null)
                     {
-                        <dt>Comprobante (ERP)</dt><dd>@d.InvoiceNumber</dd>
+                        <dt>@T("sales.comprobante_erp")</dt><dd>@d.InvoiceNumber</dd>
                     }
                 </dl>
                 <dl class="totals">
-                    <dt>Subtotal</dt><dd>@Fmt.Money(d.Subtotal, d.CurrencyCode)</dd>
-                    <dt>Impuesto</dt><dd>@Fmt.Money(d.Tax, d.CurrencyCode)</dd>
+                    <dt>@T("sales.subtotal")</dt><dd>@Fmt.Money(d.Subtotal, d.CurrencyCode)</dd>
+                    <dt>@T("sales.impuesto")</dt><dd>@Fmt.Money(d.Tax, d.CurrencyCode)</dd>
                     @if (d.Discount > 0)
                     {
-                        <dt>Descuentos</dt><dd>−@Fmt.Money(d.Discount, d.CurrencyCode)</dd>
+                        <dt>@T("sales.descuentos")</dt><dd>−@Fmt.Money(d.Discount, d.CurrencyCode)</dd>
                     }
-                    <dt class="grand">Total</dt><dd class="grand">@Fmt.Money(d.Total, d.CurrencyCode)</dd>
+                    <dt class="grand">@T("sales.total")</dt><dd class="grand">@Fmt.Money(d.Total, d.CurrencyCode)</dd>
                     @if (d.Returned > 0)
                     {
-                        <dt>Devuelto</dt><dd class="warn-text">−@Fmt.Money(d.Returned, d.CurrencyCode)</dd>
+                        <dt>@T("sales.devuelto_2")</dt><dd class="warn-text">−@Fmt.Money(d.Returned, d.CurrencyCode)</dd>
                     }
                 </dl>
             </div>
@@ -185,58 +185,58 @@
         <Footer>
             @if (d.CanVoid && Session.Can(PosPermissions.Void))
             {
-                <button class="btn btn-danger" @onclick="() => StartVoid(d)"><Icon Name="ban" Size="18" />Anular</button>
+                <button class="btn btn-danger" @onclick="() => StartVoid(d)"><Icon Name="ban" Size="18" />@T("sales.anular_2")</button>
             }
             @if (d.CanReturn && Session.Can(PosPermissions.Return))
             {
-                <button class="btn" @onclick="() => StartReturnAsync(d)"><Icon Name="undo" Size="18" />Devolución</button>
+                <button class="btn" @onclick="() => StartReturnAsync(d)"><Icon Name="undo" Size="18" />@T("sales.devolucion")</button>
             }
-            <button class="btn btn-dark" @onclick="() => _detail = null">Cerrar</button>
+            <button class="btn btn-dark" @onclick="() => _detail = null">@T("sales.cerrar")</button>
         </Footer>
     </Modal>
 }
 
 @if (_voiding is { } v)
 {
-    <Modal Title="@($"Anular {v.Number}")" Subtitle="El WMS devolverá el stock y el ERP revertirá el ingreso." Size="sm" Error="@_error" OnClose="() => _voiding = null">
+    <Modal Title="@(T("sales.anular", v.Number))" Subtitle="@(T("sales.el_wms_devolvera_el_stock"))" Size="sm" Error="@_error" OnClose="() => _voiding = null">
         <ChildContent>
             <div class="field">
-                <label>Motivo</label>
-                <input class="control" placeholder="Error de cobro, venta duplicada…" @bind="_reason" />
+                <label>@T("sales.motivo")</label>
+                <input class="control" placeholder="@(T("sales.error_de_cobro_venta_duplicada"))" @bind="_reason" />
             </div>
         </ChildContent>
         <Footer>
-            <button class="btn" @onclick="() => _voiding = null">Cancelar</button>
-            <button class="btn btn-danger" disabled="@_busy" @onclick="VoidAsync">Anular venta</button>
+            <button class="btn" @onclick="() => _voiding = null">@T("sales.cancelar")</button>
+            <button class="btn btn-danger" disabled="@_busy" @onclick="VoidAsync">@T("sales.anular_venta")</button>
         </Footer>
     </Modal>
 }
 
 @if (_returning is { } rt)
 {
-    <Modal Title="@($"Devolución de {rt.Number}")" Subtitle="El reembolso sale en efectivo de la caja abierta." Error="@_error" OnClose="() => _returning = null">
+    <Modal Title="@(T("sales.devolucion_de", rt.Number))" Subtitle="@(T("sales.el_reembolso_sale_en_efectivo"))" Error="@_error" OnClose="() => _returning = null">
         <ChildContent>
             @foreach (var line in _returnLines.Where(l => l.Line.Returnable > 0))
             {
                 <div class="list-row">
                     <div class="two-line" style="flex:1">
                         <span class="t1">@line.Line.Name</span>
-                        <span class="t2">Vendido @Fmt.Qty(line.Line.Quantity) · se puede devolver @Fmt.Qty(line.Line.Returnable)</span>
+                        <span class="t2">@T("sales.vendido_se_puede_devolver", Fmt.Qty(line.Line.Quantity), Fmt.Qty(line.Line.Returnable))</span>
                     </div>
-                    <input class="control" style="width:110px" type="number" min="0" max="@line.Line.Returnable" step="any" @bind="line.Quantity" @bind:event="oninput" aria-label="Cantidad a devolver" />
+                    <input class="control" style="width:110px" type="number" min="0" max="@line.Line.Returnable" step="any" @bind="line.Quantity" @bind:event="oninput" aria-label="@(T("sales.cantidad_devolver"))" />
                 </div>
             }
             <div class="field">
-                <label>Motivo</label>
-                <input class="control" placeholder="Producto dañado, cambio…" @bind="_reason" />
+                <label>@T("sales.motivo")</label>
+                <input class="control" placeholder="@(T("sales.producto_danado_cambio"))" @bind="_reason" />
             </div>
             <dl class="totals">
-                <dt class="grand">A devolver</dt><dd class="grand">@Fmt.Money(ReturnTotal, rt.CurrencyCode)</dd>
+                <dt class="grand">@T("sales.devolver")</dt><dd class="grand">@Fmt.Money(ReturnTotal, rt.CurrencyCode)</dd>
             </dl>
         </ChildContent>
         <Footer>
-            <button class="btn" @onclick="() => _returning = null">Cancelar</button>
-            <button class="btn btn-dark" disabled="@(_busy || ReturnTotal <= 0)" @onclick="ReturnAsync">Registrar devolución</button>
+            <button class="btn" @onclick="() => _returning = null">@T("sales.cancelar")</button>
+            <button class="btn btn-dark" disabled="@(_busy || ReturnTotal <= 0)" @onclick="ReturnAsync">@T("sales.registrar_devolucion")</button>
         </Footer>
     </Modal>
 }
@@ -248,7 +248,7 @@
         public decimal Quantity { get; set; }
     }
 
-    private static readonly (string Value, string Label)[] Tabs = [("", "Todas"), (SaleStatuses.Completed, "Pagadas"), (SaleStatuses.Voided, "Anuladas")];
+    private static (string Value, string Label)[] Tabs => [("", T("sales.todas")), (SaleStatuses.Completed, T("sales.pagadas")), (SaleStatuses.Voided, T("sales.anuladas"))];
 
     private const int PageSize = 15;
     private PagedResult<SaleRow>? _result;
@@ -330,7 +330,7 @@
         if (_voiding is not { } sale)
             return;
         _busy = true;
-        _error = await TryAsync(() => Pos.Sales.VoidAsync(sale.Id, _reason), $"Venta {sale.Number} anulada.");
+        _error = await TryAsync(() => Pos.Sales.VoidAsync(sale.Id, _reason), T("sales.venta_anulada", sale.Number));
         _busy = false;
         if (_error is null)
         {
@@ -359,7 +359,7 @@
         _busy = false;
         if (_error is null)
         {
-            Toasts.Success($"Devolución {number} registrada. Entrega {Fmt.Money(ReturnTotal, sale.CurrencyCode)} en efectivo.");
+            Toasts.Success(T("sales.devolucion_registrada_entrega_en_efectivo", number, (Fmt.Money(ReturnTotal, sale.CurrencyCode))));
             _returning = null;
         }
     }
@@ -367,14 +367,14 @@
     private async Task ExportAsync()
     {
         var all = await Pos.Sales.GetSalesAsync(BuildQuery(1, 100_000));
-        var csv = new System.Text.StringBuilder("Número;Fecha;Tienda;Cliente;Estado;Subtotal;Impuesto;Total;Devuelto;Comprobante\n");
+        var csv = new System.Text.StringBuilder(T("sales.numero_fecha_tienda_cliente_estado"));
         foreach (var s in all.Items)
         {
             csv.AppendLine(string.Join(';', s.Number, s.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), s.SiteName, s.CustomerName,
                 Fmt.SaleStatus(s.Status), Csv(s.Subtotal), Csv(s.Tax), Csv(s.Total), Csv(s.Returned), s.InvoiceNumber));
         }
         var path = await Exporter.ExportAsync($"ventas-{DateTime.Now:yyyyMMdd-HHmm}.csv", csv.ToString());
-        Toasts.Success($"Exportadas {all.Total} ventas ({Path.GetFileName(path)}).");
+        Toasts.Success(T("sales.exportadas_ventas", all.Total, Path.GetFileName(path)));
     }
 
     private static string Csv(decimal value) => value.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
