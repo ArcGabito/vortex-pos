@@ -36,7 +36,8 @@ Tamaños (S, M, L, XL) relativos entre fases.
   límite requieren supervisor.
 - **Auditoría** de anulaciones, devoluciones, descuentos, aperturas y cierres de caja.
 - **Idiomas** español, inglés y portugués (1b, hecho): la interfaz completa, con selector en Configuración → Este
-  equipo (por defecto, el idioma del país de la empresa). Falta traducir los mensajes de validación de la lógica.
+  equipo (por defecto, el idioma del país de la empresa). Los mensajes de validación
+  también salen en el idioma elegido.
 
 **Terminado cuando:** una tienda en EE. UU. cobra con sales tax sumado al precio, un `cajero` no puede anular, y la
 anulación del supervisor queda en la auditoría.

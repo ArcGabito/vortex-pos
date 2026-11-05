@@ -2,6 +2,8 @@ using Microsoft.Data.Sqlite;
 using VortexPos.Core.Data;
 using VortexPos.Core.Domain;
 
+using static VortexPos.Core.Texts.CoreText;
+
 namespace VortexPos.Core.Services;
 
 /// <summary>
@@ -19,14 +21,14 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
     public Task<Guid> OpenAsync(decimal openingFloat, Guid? siteId = null, CancellationToken ct = default)
     {
         RequirePermission(PosPermissions.OpenCash);
-        Require(openingFloat >= 0, "El fondo inicial no puede ser negativo.");
+        Require(openingFloat >= 0, T("error.el_fondo_inicial_no_puede"));
         return InTransactionAsync(async (c, tx, now) =>
         {
-            Require(await OpenSessionAsync(c, tx) is null, "Ya hay una caja abierta en este equipo.");
+            Require(await OpenSessionAsync(c, tx) is null, T("error.ya_hay_una_caja_abierta"));
             var site = siteId ?? await DefaultSiteAsync(c, tx);
-            Require(site is not null, "Elige la tienda de esta caja (Configuración → Tienda de esta caja).");
+            Require(site is not null, T("error.elige_la_tienda_de_esta"));
             Require(await c.ScalarAsync<long>("SELECT COUNT(*) FROM sites WHERE id = $id AND is_deleted = 0", tx, ("$id", site)) > 0,
-                "La tienda elegida no existe.");
+                T("error.la_tienda_elegida_no_existe"));
 
             var id = Guid.NewGuid();
             var number = await DocumentNumbers.NextAsync(c, tx, DocumentNumbers.CashSession, Context.DeviceTag);
@@ -50,11 +52,11 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
     public Task<decimal> CloseAsync(Guid sessionId, decimal countedCash, string? note, CancellationToken ct = default)
     {
         RequirePermission(PosPermissions.CloseCash);
-        Require(countedCash >= 0, "El efectivo contado no puede ser negativo.");
+        Require(countedCash >= 0, T("error.el_efectivo_contado_no_puede"));
         return InTransactionAsync(async (c, tx, now) =>
         {
             var status = await c.ScalarAsync<string?>("SELECT status FROM cash_sessions WHERE id = $id", tx, ("$id", sessionId));
-            Require(status == CashSessionStatuses.Open, "La caja ya está cerrada.");
+            Require(status == CashSessionStatuses.Open, T("error.la_caja_ya_esta_cerrada"));
             var summary = await SummaryAsync(c, tx, sessionId);
             await c.ExecAsync("""
                 UPDATE cash_sessions SET status = 'closed', closed_at = $now, closed_by = $user, expected_cash = $expected,

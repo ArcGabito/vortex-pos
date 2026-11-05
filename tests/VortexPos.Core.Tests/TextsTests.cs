@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using VortexApi.Suite.Regional;
 using VortexApi.Suite.Text;
+using VortexPos.Core.Domain;
+using VortexPos.Core.Texts;
 
 namespace VortexPos.Core.Tests;
 
@@ -36,8 +38,8 @@ public sealed partial class TextsTests
     public void Cada_clave_usada_en_la_interfaz_existe()
     {
         var catalog = new TextCatalog().AddResources(Core, "VortexPos.Core.Texts");
-        var app = Path.Combine(RepoRoot(), "src", "VortexPos");
-        var used = Directory.EnumerateFiles(app, "*.*", SearchOption.AllDirectories)
+        var used = new[] { "VortexPos", "VortexPos.Core" }
+            .SelectMany(project => Directory.EnumerateFiles(Path.Combine(RepoRoot(), "src", project), "*.*", SearchOption.AllDirectories))
             .Where(f => (f.EndsWith(".razor") || f.EndsWith(".cs")) && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
             .SelectMany(f => KeyUse().Matches(File.ReadAllText(f)).Select(m => m.Groups[1].Value))
             .Where(k => !k.EndsWith('.'))
@@ -59,6 +61,29 @@ public sealed partial class TextsTests
         Assert.Equal(Languages.Portuguese, Languages.DefaultFor("BR"));
         Assert.Equal(Languages.English, Languages.DefaultFor("US"));
         Assert.Equal(Languages.Spanish, Languages.DefaultFor("PE"));
+    }
+
+    [Fact]
+    public async Task Los_mensajes_de_la_logica_salen_en_el_idioma_elegido()
+    {
+        var t = new TestWorkspace(role: PosPermissions.Cashier);
+        await t.InitializeAsync();
+        try
+        {
+            await t.OpenCashAsync();
+            var sale = await t.Pos.Sales.CheckoutAsync(new SaleDraft([new CartLine(t.Coffee, 1)], [new PaymentDraft(PaymentMethods.Cash, 20)]));
+            using (CoreText.Use(Languages.English))
+            {
+                var ex = await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Sales.VoidAsync(sale.SaleId, "Error"));
+                Assert.Equal("Your role (cajero) doesn't allow voiding sales. Ask a supervisor to do it.", ex.Message);
+            }
+            var es = await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Sales.VoidAsync(sale.SaleId, "Error"));
+            Assert.StartsWith("Tu rol (cajero) no permite anular ventas", es.Message);
+        }
+        finally
+        {
+            await t.DisposeAsync();
+        }
     }
 
     private static string Markers(string text) =>
