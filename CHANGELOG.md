@@ -8,6 +8,15 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Caja completa (fase 2a):** ingresos y retiros de efectivo con motivo; cierre contando billetes y monedas (o por
+  total) y cierre ciego; reportes X (parcial) y Z (cierre) con ventas, impuestos, descuentos, anulaciones,
+  devoluciones, cobros por medio, movimientos de efectivo y ventas por cajero. Supervisores y administradores.
+- **Tickets en espera:** guardar la venta para retomarla después y atender a otro cliente.
+- **Impresión de tickets** en impresoras térmicas ESC/POS por red (puerto 9100), con apertura del cajón al cobrar en
+  efectivo, reimpresión desde Ventas, impresión de los reportes X y Z y prueba de impresión en Configuración.
+- **Configuración de la tienda** compartida por sus cajas (`pos.record.upserted`): encabezado y pie del ticket, ancho
+  del papel (58, 76 u 80 mm), imprimir al cobrar, abrir el cajón y cierre ciego.
+- **Tiendas por usuario:** con tiendas asignadas en el hub, el usuario solo abre caja en ellas y solo ve sus ventas.
 - **Microsoft Store:** paquete MSIX generado por `.github/workflows/store.yml` (etiqueta `vX.Y.Z`), firmado por la Store
   para instalar sin la advertencia de SmartScreen; envío automático opcional. Guía en `docs/MICROSOFT-STORE.md`.
 - **El idioma sigue al usuario:** el que elige en Configuración se guarda en el hub y se usa al entrar en cualquier

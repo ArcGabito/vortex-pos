@@ -139,5 +139,22 @@ internal static class Schema
         ALTER TABLE sale_lines ADD COLUMN tax_code TEXT;
         UPDATE sale_lines SET tax_code = CASE taxable WHEN 1 THEN 'standard' ELSE 'exempt' END;
         """ + VortexApi.Suite.Auditing.AuditSchema.Sql,
+        // 3: caja completa. Ingresos y retiros de efectivo, conteo por denominación al cerrar, tickets en espera (de cada
+        // caja) y configuración de tienda compartida entre cajas (pos.record.upserted, gana el cambio más reciente).
+        """
+        CREATE TABLE cash_movements (
+            id TEXT PRIMARY KEY, cash_session_id TEXT NOT NULL, kind TEXT NOT NULL, amount REAL NOT NULL, reason TEXT NOT NULL,
+            created_at TEXT NOT NULL, user_name TEXT);
+        CREATE INDEX ix_cash_movements_session ON cash_movements (cash_session_id);
+        ALTER TABLE cash_sessions ADD COLUMN denominations TEXT;
+
+        CREATE TABLE held_sales (
+            id TEXT PRIMARY KEY, label TEXT, customer_id TEXT, lines TEXT NOT NULL, total REAL NOT NULL, created_at TEXT NOT NULL,
+            user_name TEXT);
+
+        CREATE TABLE pos_records (
+            kind TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT,
+            PRIMARY KEY (kind, id));
+        """,
     ];
 }

@@ -16,6 +16,7 @@ public abstract class PosPage : ComponentBase, IDisposable
     [Inject] protected AppSession Session { get; set; } = null!;
     [Inject] protected Toasts Toasts { get; set; } = null!;
     [Inject] protected NavigationManager Nav { get; set; } = null!;
+    [Inject] protected TicketPrinter Printer { get; set; } = null!;
 
     protected PosWorkspace Pos => Session.Workspace!;
     protected bool Loading { get; private set; } = true;
@@ -81,6 +82,16 @@ public abstract class PosPage : ComponentBase, IDisposable
     protected async Task RunAsync(Func<Task> action, string? success = null)
     {
         if (await TryAsync(action, success) is { } error)
+            Toasts.Error(error);
+    }
+
+    /// <summary>Imprime el ticket de una venta en la impresora de esta caja (con la configuración de su tienda).</summary>
+    protected async Task PrintSaleAsync(Guid saleId, bool reprint = false)
+    {
+        if (await Pos.Sales.GetTicketDataAsync(saleId) is not { } data)
+            return;
+        var settings = await Pos.Stores.GetAsync(data.Sale.SiteId);
+        if (await Printer.PrintAsync(Core.Printing.TicketBuilder.ForSale(data, settings, Fmt.Culture, reprint)) is { } error)
             Toasts.Error(error);
     }
 

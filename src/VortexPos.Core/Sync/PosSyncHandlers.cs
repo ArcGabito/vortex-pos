@@ -35,6 +35,7 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
         .OnEvent(SuiteEvents.SaleCompleted, HandleSaleCompletedAsync)
         .OnEvent(SuiteEvents.SaleVoided, HandleSaleVoidedAsync)
         .OnEvent(SuiteEvents.SaleReturned, HandleSaleReturnedAsync)
+        .OnEvent(SuiteEvents.PosRecordUpserted, HandlePosRecordAsync)
         .OnEvent(SuiteEvents.StockAdjusted, HandleStockAdjustedAsync)
         .OnEvent(SuiteEvents.InvoiceIssued, HandleInvoiceIssuedAsync);
 
@@ -69,6 +70,17 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
                 return "sin returnId";
             await SalesService.ApplyRemoteReturnAsync(c, tx, e.OccurredAt, ret);
             return null;
+        }, ct);
+
+    /// <summary>Configuración compartida que cambió otra caja. Gana el cambio más reciente.</summary>
+    public Task HandlePosRecordAsync(VortexEvent e, CancellationToken ct = default) =>
+        ApplyOnceAsync<PosRecordUpserted>(e, async (record, c, tx) =>
+        {
+            if (e.Source != ProductCode)
+                return "ignorado: los registros del POS solo los publica el POS";
+            if (record.Kind != PosRecordKinds.StoreSettings || string.IsNullOrEmpty(record.Id))
+                return $"ignorado: tipo de registro {record.Kind}";
+            return await StoreSettingsService.UpsertAsync(c, tx, record) ? null : "ignorado: hay un cambio más reciente";
         }, ct);
 
     // ---------- Otros sistemas ----------

@@ -108,6 +108,7 @@ public static class Fmt
 
     public static string Date(DateTimeOffset value) => Local(value).ToString("d MMM yyyy", Culture);
     public static string DateTime(DateTimeOffset value) => Local(value).ToString("d MMM yyyy, HH:mm", Culture);
+    public static string Time(DateTimeOffset value) => Local(value).ToString("HH:mm", Culture);
 
     public static string Ago(DateTimeOffset value)
     {
@@ -174,6 +175,8 @@ public static class Fmt
         "cash.opened" => T("fmt.apertura_de_caja"),
         "cash.closed" => T("fmt.cierre_de_caja"),
         "price.override" => T("fmt.cambio_de_precio"),
+        "cash.movement" => T("fmt.movimiento_de_caja"),
+        "settings.changed" => T("fmt.cambio_de_configuracion"),
         _ => action,
     };
 
