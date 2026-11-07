@@ -29,6 +29,11 @@ conexión** y se integra con el resto de la suite a través del hub [vortex-api]
 Ninguno es obligatorio: sin WMS el POS vende igual (el stock se ve como "—"), y sin ERP las ventas quedan en el POS.
 El detalle está en [docs/INTEGRACION.md](docs/INTEGRACION.md).
 
+## Instalar
+
+En Windows, Vortex POS se instala desde la **Microsoft Store** (paquete MSIX firmado por Microsoft, sin advertencias de
+SmartScreen y con actualizaciones automáticas). Cómo se publica: [docs/MICROSOFT-STORE.md](docs/MICROSOFT-STORE.md).
+
 ## Empezar
 
 Requisitos: [.NET SDK 10](https://dotnet.microsoft.com/download) con el workload de MAUI
