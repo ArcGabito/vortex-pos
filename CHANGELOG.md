@@ -27,6 +27,8 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 - `docs/ROADMAP.md`: hoja de ruta para competir con Square, Lightspeed, Shopify POS y Loyverse.
 
 ### Changed
+- `docs/ROADMAP.md` pasa a ser la guía de requisitos empresariales: cada requisito (`POS-xx`) con su estado y
+  la fase que lo cubre, y cada fase con su criterio de terminado, propuestas al hub y decisiones pendientes.
 - **Rediseño monocromático:** barra lateral gris claro con el enlace activo como tarjeta, barra superior con botón
   **Vender**, pie con derechos y sellos, controles blancos con borde, cabeceras de tabla en tinta y pestañas en
   mayúsculas. El Panel muestra lo vendido hoy en una barra oscura y los indicadores en un panel oscuro junto a las
