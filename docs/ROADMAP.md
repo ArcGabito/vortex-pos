@@ -23,7 +23,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 |---|---|---|---|
 | POS-01 | Búsqueda, lector de códigos de barras y categorías | Hecho | — |
 | POS-02 | Descuento por línea y por ticket, con límite por rol | Parcial: por línea | 3 |
-| POS-03 | Tickets en espera y varias ventas abiertas a la vez | Pendiente | 2 |
+| POS-03 | Tickets en espera y varias ventas abiertas a la vez | Hecho | 2 |
 | POS-04 | Venta por presentación (caja × 12) con los códigos del hub | Pendiente | 3 |
 | POS-05 | Variantes (talla, color) y modificadores (extras, sin cebolla) | Pendiente | 3 |
 | POS-06 | Combos y kits con precio propio | Pendiente | 3 |
@@ -58,9 +58,9 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | # | Requisito | Estado | Fase |
 |---|---|---|---|
 | POS-30 | Turnos con fondo inicial, cierre y arqueo con diferencia | Hecho | — |
-| POS-31 | Ingresos y retiros de efectivo con motivo | Pendiente | 2 |
-| POS-32 | Arqueo por denominación y cierre ciego (el cajero no ve el esperado) | Pendiente | 2 |
-| POS-33 | Reporte X (parcial) y Z (cierre) por caja y por cajero | Pendiente | 2 |
+| POS-31 | Ingresos y retiros de efectivo con motivo | Hecho | 2 |
+| POS-32 | Arqueo por denominación y cierre ciego (el cajero no ve el esperado) | Hecho | 2 |
+| POS-33 | Reporte X (parcial) y Z (cierre) por caja y por cajero | Hecho | 2 |
 | POS-34 | Depósitos al banco desde la caja | Pendiente | 7 |
 
 ### Postventa
@@ -90,8 +90,8 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | # | Requisito | Estado | Fase |
 |---|---|---|---|
 | POS-60 | Lector de códigos en modo teclado | Hecho | — |
-| POS-61 | Impresora de tickets ESC/POS (red, USB, Bluetooth), plantilla por tienda y reimpresión | Pendiente | 2 |
-| POS-62 | Cajón de dinero | Pendiente | 2 |
+| POS-61 | Impresora de tickets ESC/POS (red, USB, Bluetooth), plantilla por tienda y reimpresión | Parcial: por red; USB y Bluetooth pendientes | 2 |
+| POS-62 | Cajón de dinero | Hecho | 2 |
 | POS-63 | Balanza | Pendiente | 3 |
 | POS-64 | Visor o segunda pantalla para el cliente | Pendiente | 8 |
 | POS-65 | Escaneo con la cámara del celular | Pendiente | 3 |
@@ -104,7 +104,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | POS-71 | Auditoría de anulaciones, devoluciones, descuentos y caja | Hecho | 1 |
 | POS-72 | PIN rápido para cambiar de cajero y bloqueo de pantalla | Pendiente | 2 |
 | POS-73 | Autorización del supervisor en el momento (su PIN en la caja del cajero) | Pendiente | 2 |
-| POS-74 | Sedes por usuario: cada cajero vende solo en sus tiendas | Pendiente | 2 |
+| POS-74 | Sedes por usuario: cada cajero vende solo en sus tiendas | Hecho | 2 |
 
 ### Operación sin conexión y varios equipos
 
@@ -112,7 +112,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 |---|---|---|---|
 | POS-80 | Vende sin red y sincroniza al volver | Hecho | — |
 | POS-81 | Varias cajas por tienda sin duplicar ventas (Ids deterministas) | Hecho | — |
-| POS-82 | Configuración de la tienda compartida entre cajas (impresoras, medios de pago, promociones) | Pendiente | 2 |
+| POS-82 | Configuración de la tienda compartida entre cajas (impresoras, medios de pago, promociones) | Hecho | 2 |
 
 ### Inventario y omnicanal
 
@@ -186,6 +186,12 @@ como `pos.record.upserted` (el último cambio gana, como en el CRM y el WMS).
 
 **Terminado cuando:** un turno con ventas, un retiro y un ingreso cierra con reporte Z impreso; el arqueo por
 denominación muestra la diferencia; un cajero con PIN cambia de usuario sin cerrar la venta en curso.
+
+**Estado (2026-11):** 2a hecha: ingresos y retiros, arqueo por denominación, cierre ciego, reportes X y Z, tickets en
+espera, tickets ESC/POS por red con reimpresión y cajón, configuración de tienda compartida (`pos.record.upserted`) y
+tiendas por usuario. Pruebas en `CashRegisterTests`. **Pendiente (2b):** PIN rápido, bloqueo de pantalla y
+autorización del supervisor (POS-72, POS-73), que necesitan el PIN de usuario en el hub; impresión por USB y
+Bluetooth (POS-61).
 
 ## Fase 3: catálogo y precios · L
 

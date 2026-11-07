@@ -83,6 +83,7 @@ public sealed class TestWorkspace(string deviceTag = "TEST", string role = "admi
         public string UserName => "Luis";
         public string DeviceTag => deviceTag;
         public Guid? DefaultSiteId => store;
+        public IReadOnlyList<Guid> SiteIds { get; set; } = [];
         public string Role { get; set; } = role;
         public bool Can(string permission) => PosPermissions.Matrix.Can(Role, "User", permission);
     }

@@ -1316,3 +1316,24 @@ table.data .strong { font-weight: 700; color: var(--ink); }
     .register { grid-template-columns: 1fr; padding: 18px; }
     .register-cart { position: static; }
 }
+
+/* ---------- Caja: conteo por denominación y vista previa del ticket ---------- */
+
+.denoms { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.denom { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 13px; }
+.denom span { min-width: 70px; text-align: right; }
+.denom .control { height: 38px; }
+
+.ticket-preview {
+    margin: 0;
+    padding: 18px;
+    max-height: 60vh;
+    overflow: auto;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    font-family: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre;
+}

@@ -12,6 +12,9 @@ public interface IPosContext
     /// <summary>Tienda donde está esta caja (puede ser null hasta que el usuario la elija).</summary>
     Guid? DefaultSiteId { get; }
 
+    /// <summary>Tiendas asignadas al usuario en el hub (<c>Access.SiteIds</c>). Vacío: trabaja en todas.</summary>
+    IReadOnlyList<Guid> SiteIds => [];
+
     /// <summary>Rol efectivo del usuario en el POS (<see cref="PosPermissions"/>).</summary>
     string Role { get; }
 
@@ -146,7 +149,60 @@ public sealed record CashSessionRow(
 /// <summary>Arqueo de un turno: lo que debería haber en el cajón y lo cobrado por cada medio.</summary>
 public sealed record CashSummary(
     decimal OpeningFloat, decimal CashSales, decimal CashRefunds, decimal ExpectedCash, IReadOnlyDictionary<string, decimal> ByMethod,
-    int Sales, decimal SalesTotal);
+    int Sales, decimal SalesTotal, decimal CashIn = 0, decimal CashOut = 0);
+
+public static class CashMovementKinds
+{
+    /// <summary>Entra efectivo al cajón (cambio, sencillo traído del banco).</summary>
+    public const string In = "in";
+
+    /// <summary>Sale efectivo del cajón (pago a un proveedor, retiro a la caja fuerte, depósito).</summary>
+    public const string Out = "out";
+}
+
+public sealed record CashMovementRow(Guid Id, string Kind, decimal Amount, string Reason, DateTimeOffset CreatedAt, string? UserName);
+
+/// <summary>Cantidad contada de un billete o moneda.</summary>
+public sealed record DenominationCount(decimal Value, int Quantity)
+{
+    public decimal Total => Value * Quantity;
+}
+
+/// <summary>Ventas de un cajero dentro del turno (reporte X/Z).</summary>
+public sealed record CashierTotals(string UserName, int Sales, decimal Total);
+
+/// <summary>
+/// Reporte de un turno. Mientras la caja está abierta es el reporte X (parcial); al cerrarla, el Z (cierre), con lo
+/// contado y la diferencia.
+/// </summary>
+public sealed record CashReport(
+    CashSessionRow Session, CashSummary Summary, string CurrencyCode, decimal Subtotal, decimal Tax, decimal Discounts,
+    int Voided, decimal VoidedTotal, int Returns, IReadOnlyList<CashMovementRow> Movements, IReadOnlyList<CashierTotals> ByCashier,
+    IReadOnlyList<DenominationCount> Denominations, DateTimeOffset GeneratedAt)
+{
+    public bool IsFinal => Session.Status == CashSessionStatuses.Closed;
+}
+
+// ---------- Tickets en espera ----------
+
+/// <summary>Venta guardada para retomarla después (el cliente fue a buscar algo). Es de esta caja: no se replica.</summary>
+public sealed record HeldSaleRow(Guid Id, string? Label, Guid? CustomerId, string? CustomerName, int Lines, decimal Total,
+    DateTimeOffset CreatedAt, string? UserName);
+
+public sealed record HeldSale(Guid Id, string? Label, Guid? CustomerId, IReadOnlyList<CartLine> Lines);
+
+// ---------- Configuración de tienda ----------
+
+/// <summary>
+/// Configuración de una tienda, compartida por todas sus cajas (<c>pos.record.upserted</c>, gana el cambio más reciente).
+/// La impresora es de cada caja y vive en el equipo.
+/// </summary>
+public sealed record StoreSettings(
+    string? TicketHeader = null, string? TicketFooter = null, int PaperColumns = 48, bool BlindClose = false,
+    bool PrintAutomatically = true, bool OpenDrawerOnCash = true)
+{
+    public static StoreSettings Default { get; } = new();
+}
 
 // ---------- Panel ----------
 

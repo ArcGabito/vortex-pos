@@ -144,6 +144,77 @@
             </div>
 
             <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h3>@T("settings.impresora_de_tickets")</h3>
+                        <div class="sub">@T("settings.impresora_explica")</div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="form-row">
+                        <div class="field">
+                            <label>@T("settings.direccion_ip")</label>
+                            <input class="control" placeholder="192.168.1.50" @bind="_printerHost" />
+                        </div>
+                        <div class="field">
+                            <label>@T("settings.puerto")</label>
+                            <input class="control" type="number" min="1" max="65535" @bind="_printerPort" />
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+                        <button class="btn btn-dark btn-sm" @onclick="SavePrinter">@T("settings.guardar")</button>
+                        @if (Printer.IsConfigured)
+                        {
+                            <button class="btn btn-sm" @onclick="TestPrinterAsync"><Icon Name="receipt" Size="16" />@T("settings.imprimir_prueba")</button>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (Session.Can(PosPermissions.StoreSettings) && _storeId is not null)
+            {
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3>@T("settings.tienda_y_tickets")</h3>
+                            <div class="sub">@T("settings.tienda_explica")</div>
+                        </div>
+                    </div>
+                    <div class="card-body" style="display:flex;flex-direction:column;gap:14px">
+                        <div class="field">
+                            <label>@T("settings.tienda")</label>
+                            <select class="select" value="@_storeId" @onchange="e => SelectStoreAsync(e.Value?.ToString())">
+                                @foreach (var site in _sites)
+                                {
+                                    <option value="@site.Id">@site.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>@T("settings.encabezado_del_ticket")</label>
+                            <textarea class="control" rows="3" placeholder="@(T("settings.ej_direccion_y_telefono"))" @bind="_store.Header"></textarea>
+                        </div>
+                        <div class="field">
+                            <label>@T("settings.pie_del_ticket")</label>
+                            <textarea class="control" rows="2" placeholder="@(T("settings.ej_gracias_por_su_compra"))" @bind="_store.Footer"></textarea>
+                        </div>
+                        <div class="field">
+                            <label>@T("settings.ancho_del_papel")</label>
+                            <select class="select" @bind="_store.Columns">
+                                <option value="32">@T("settings.papel_58")</option>
+                                <option value="42">@T("settings.papel_76")</option>
+                                <option value="48">@T("settings.papel_80")</option>
+                            </select>
+                        </div>
+                        <label class="check"><input type="checkbox" @bind="_store.PrintAutomatically" />@T("settings.imprimir_al_cobrar")</label>
+                        <label class="check"><input type="checkbox" @bind="_store.OpenDrawer" />@T("settings.abrir_cajon_en_efectivo")</label>
+                        <label class="check"><input type="checkbox" @bind="_store.BlindClose" />@T("settings.cierre_ciego")</label>
+                        <div><button class="btn btn-dark btn-sm" @onclick="SaveStoreAsync">@T("settings.guardar")</button></div>
+                    </div>
+                </div>
+            }
+
+            <div class="card">
                 <div class="card-head"><h3>@T("settings.acerca_de")</h3></div>
                 <div class="card-body">
                     <div class="list-row">
@@ -170,15 +241,86 @@
     private const string IssuesUrl = SourceUrl + "/issues";
     private static readonly string Version = AppInfo.Current.Version.ToString(3);
 
+    private sealed class StoreForm
+    {
+        public string? Header { get; set; }
+        public string? Footer { get; set; }
+        public int Columns { get; set; } = 48;
+        public bool PrintAutomatically { get; set; } = true;
+        public bool OpenDrawer { get; set; } = true;
+        public bool BlindClose { get; set; }
+
+        public static StoreForm From(StoreSettings s) => new()
+        {
+            Header = s.TicketHeader, Footer = s.TicketFooter, Columns = s.PaperColumns, PrintAutomatically = s.PrintAutomatically,
+            OpenDrawer = s.OpenDrawerOnCash, BlindClose = s.BlindClose,
+        };
+
+        public StoreSettings ToSettings() => new(Header, Footer, Columns, BlindClose, PrintAutomatically, OpenDrawer);
+    }
+
     private IReadOnlyList<VortexFailedEntry> _failed = [];
     private IReadOnlyList<SiteRow> _sites = [];
+    private string? _printerHost;
+    private int _printerPort = TicketPrinter.DefaultPort;
+    private Guid? _storeId;
+    private StoreForm _store = new();
 
-    protected override void OnInitialized() => Session.Changed += OnSessionChanged;
+    protected override void OnInitialized()
+    {
+        Session.Changed += OnSessionChanged;
+        _printerHost = Printer.Host;
+        _printerPort = Printer.Port;
+    }
 
     protected override async Task LoadAsync()
     {
-        _sites = await Pos.Master.GetSitesAsync(activeOnly: true);
+        _sites = (await Pos.Master.GetSitesAsync(activeOnly: true))
+            .Where(s => Session.SiteIds.Count == 0 || Session.SiteIds.Contains(s.Id)).ToList();
         _failed = await Session.GetFailedAsync();
+        _storeId ??= _sites.FirstOrDefault(s => s.Id == Session.DefaultSiteId)?.Id
+            ?? _sites.FirstOrDefault(s => s.Kind == "Store")?.Id ?? _sites.FirstOrDefault()?.Id;
+        if (_storeId is { } id)
+            _store = StoreForm.From(await Pos.Stores.GetAsync(id));
+    }
+
+    private async Task SelectStoreAsync(string? value)
+    {
+        if (!Guid.TryParse(value, out var id))
+            return;
+        _storeId = id;
+        _store = StoreForm.From(await Pos.Stores.GetAsync(id));
+    }
+
+    private async Task SaveStoreAsync()
+    {
+        if (_storeId is { } id)
+            await RunAsync(() => Pos.Stores.SaveAsync(id, _store.ToSettings()), T("settings.configuracion_guardada"));
+    }
+
+    private void SavePrinter()
+    {
+        Printer.Configure(_printerHost, _printerPort);
+        _printerHost = Printer.Host;
+        _printerPort = Printer.Port;
+        Toasts.Success(Printer.IsConfigured ? T("settings.impresora_guardada") : T("settings.impresora_quitada"));
+    }
+
+    private async Task TestPrinterAsync()
+    {
+        var settings = _storeId is { } id ? await Pos.Stores.GetAsync(id) : StoreSettings.Default;
+        var lines = new List<VortexPos.Core.Printing.TicketLine>
+        {
+            new("Vortex POS", VortexPos.Core.Printing.TicketAlign.Center, Bold: true, Large: true),
+            new(T("settings.prueba_de_impresion"), VortexPos.Core.Printing.TicketAlign.Center),
+            new(new string('-', settings.PaperColumns)),
+            new(Fmt.DateTime(DateTimeOffset.UtcNow)),
+            new($"{Printer.Host}:{Printer.Port} · {settings.PaperColumns} col."),
+        };
+        if (await Printer.PrintAsync(new VortexPos.Core.Printing.TicketDocument(lines, settings.PaperColumns)) is { } error)
+            Toasts.Error(error);
+        else
+            Toasts.Success(T("settings.prueba_enviada"));
     }
 
     private void OnSessionChanged() => _ = InvokeAsync(async () =>

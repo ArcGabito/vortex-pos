@@ -26,16 +26,23 @@ public abstract class PosService(PosDatabase db, IPosContext context, TimeProvid
         return result;
     }
 
-    /// <summary>Tienda de la caja: la elegida en este equipo o la primera tienda activa.</summary>
+    /// <summary>Tienda de la caja: la elegida en este equipo (si el usuario puede usarla) o la primera tienda activa permitida.</summary>
     protected async Task<Guid?> DefaultSiteAsync(SqliteConnection c, SqliteTransaction? tx)
     {
-        if (Context.DefaultSiteId is { } chosen)
+        if (Context.DefaultSiteId is { } chosen && CanUseSite(chosen))
             return chosen;
-        return await c.ScalarAsync<string?>("""
-            SELECT id FROM sites WHERE is_deleted = 0 AND is_active = 1
+        return await c.ScalarAsync<string?>($"""
+            SELECT id FROM sites WHERE is_deleted = 0 AND is_active = 1{SiteFilter("id")}
             ORDER BY CASE kind WHEN 'Store' THEN 0 ELSE 1 END, code LIMIT 1
             """, tx) is { } id ? Guid.Parse(id) : null;
     }
+
+    /// <summary>Si el usuario puede trabajar en la tienda (sin tiendas asignadas en el hub, en todas).</summary>
+    protected bool CanUseSite(Guid siteId) => Context.SiteIds.Count == 0 || Context.SiteIds.Contains(siteId);
+
+    /// <summary>Condición SQL que limita a las tiendas del usuario (vacía si puede usar todas). Los Ids son Guid: no hay inyección.</summary>
+    protected string SiteFilter(string column) =>
+        Context.SiteIds.Count == 0 ? "" : $" AND {column} IN ({string.Join(", ", Context.SiteIds.Select(s => $"'{s}'"))})";
 
     /// <summary>Inicio del día local (Perú, UTC-5) como instante UTC, para filtrar "hoy".</summary>
     protected DateTimeOffset StartOfDay(int daysAgo = 0)

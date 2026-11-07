@@ -131,6 +131,70 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         return result;
     }
 
+    // ---------- Tickets en espera ----------
+
+    /// <summary>
+    /// Guarda el carrito para retomarlo después y deja la caja libre para atender a otro cliente. Es de esta caja (no se
+    /// replica); los precios se vuelven a tomar del catálogo al cobrar.
+    /// </summary>
+    public Task<Guid> HoldAsync(IReadOnlyList<CartLine> lines, Guid? customerId, string? label, CancellationToken ct = default)
+    {
+        RequirePermission(PosPermissions.Sell);
+        Require(lines.Count > 0, T("error.agrega_al_menos_un_articulo"));
+        Require(lines.All(l => l.Quantity > 0), T("error.las_cantidades_deben_ser_mayores"));
+        return InTransactionAsync(async (c, tx, now) =>
+        {
+            var regime = await TaxRegimeAsync(c, tx);
+            var priced = new List<(decimal Total, decimal Discount, string? TaxCode)>();
+            string? currency = null;
+            foreach (var line in lines)
+            {
+                var item = await c.FirstOrDefaultAsync("SELECT i.*, NULL AS on_hand FROM items i WHERE i.id = $id AND i.is_deleted = 0",
+                    MasterDataService.ReadItem, tx, ("$id", line.ItemId));
+                Require(item is not null, T("error.uno_de_los_articulos_ya"));
+                currency ??= item!.CurrencyCode;
+                priced.Add((LineTotal(line.Quantity, line.UnitPrice ?? item!.Price, line.Discount, item!.CurrencyCode), line.Discount, item.TaxCode));
+            }
+
+            var id = Guid.NewGuid();
+            await c.ExecAsync("""
+                INSERT INTO held_sales (id, label, customer_id, lines, total, created_at, user_name)
+                VALUES ($id, $label, $customer, $lines, $total, $now, $user)
+                """, tx, ("$id", id), ("$label", Clean(label)), ("$customer", customerId),
+                ("$lines", System.Text.Json.JsonSerializer.Serialize(lines)), ("$total", Totals(priced, regime, currency!).Total),
+                ("$now", now), ("$user", Context.UserName));
+            return id;
+        }, ct);
+    }
+
+    public async Task<IReadOnlyList<HeldSaleRow>> GetHeldAsync(CancellationToken ct = default)
+    {
+        await using var c = await Db.OpenAsync(ct);
+        return await c.QueryAsync("""
+            SELECT h.*, p.name AS customer_name FROM held_sales h LEFT JOIN parties p ON p.id = h.customer_id ORDER BY h.created_at
+            """, r => new HeldSaleRow(r.Guid("id"), r.StrOrNull("label"), r.GuidOrNull("customer_id"), r.StrOrNull("customer_name"),
+                System.Text.Json.JsonSerializer.Deserialize<List<CartLine>>(r.Str("lines"))?.Count ?? 0, r.Dec("total"),
+                r.Time("created_at"), r.StrOrNull("user_name")));
+    }
+
+    /// <summary>Retoma un ticket en espera: lo devuelve y lo quita de la lista.</summary>
+    public Task<HeldSale> ResumeHeldAsync(Guid id, CancellationToken ct = default) =>
+        InTransactionAsync(async (c, tx, _) =>
+        {
+            var held = await c.FirstOrDefaultAsync("SELECT * FROM held_sales WHERE id = $id", r => new HeldSale(r.Guid("id"),
+                r.StrOrNull("label"), r.GuidOrNull("customer_id"),
+                System.Text.Json.JsonSerializer.Deserialize<List<CartLine>>(r.Str("lines")) ?? []), tx, ("$id", id));
+            Require(held is not null, T("error.el_ticket_en_espera_ya"));
+            await c.ExecAsync("DELETE FROM held_sales WHERE id = $id", tx, ("$id", id));
+            return held!;
+        }, ct);
+
+    public async Task DiscardHeldAsync(Guid id, CancellationToken ct = default)
+    {
+        await using var c = await Db.OpenAsync(ct);
+        await c.ExecAsync("DELETE FROM held_sales WHERE id = $id", null, ("$id", id));
+    }
+
     // ---------- Anulación y devolución ----------
 
     /// <summary>Anula una venta sin devoluciones. El evento tiene Id determinista: si dos cajas la anulan, cuenta una vez.</summary>
@@ -193,8 +257,8 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     public async Task<PagedResult<SaleRow>> GetSalesAsync(SaleQuery q, CancellationToken ct = default)
     {
         await using var c = await Db.OpenAsync(ct);
-        const string where = """
-            WHERE ($status IS NULL OR s.status = $status)
+        var where = $"""
+            WHERE ($status IS NULL OR s.status = $status){SiteFilter("s.site_id")}
               AND ($site IS NULL OR s.site_id = $site)
               AND ($from IS NULL OR s.created_at >= $from) AND ($to IS NULL OR s.created_at < $to)
               AND ($search IS NULL OR s.number LIKE $like OR p.name LIKE $like OR p.document_number LIKE $like
@@ -229,6 +293,24 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             r => new PaymentRow(r.Str("method"), r.Dec("amount"), r.StrOrNull("reference")), null, ("$id", saleId));
     }
 
+    /// <summary>Todo lo que lleva el ticket de una venta (para imprimirlo o reimprimirlo).</summary>
+    public async Task<Printing.SaleTicketData?> GetTicketDataAsync(Guid saleId, CancellationToken ct = default)
+    {
+        await using var c = await Db.OpenAsync(ct);
+        if (await GetSaleAsync(c, null, saleId) is not { } sale)
+            return null;
+        var payments = await c.QueryAsync("SELECT * FROM sale_payments WHERE sale_id = $id ORDER BY line_no",
+            r => new PaymentRow(r.Str("method"), r.Dec("amount"), r.StrOrNull("reference")), null, ("$id", saleId));
+        var company = await c.FirstOrDefaultAsync("SELECT * FROM company WHERE id = 1", r => new CompanyInfo(
+            r.Str("legal_name"), r.StrOrNull("trade_name"), r.StrOrNull("tax_id"), r.Str("country_code"), r.Str("currency_code"),
+            r.DecOrNull("default_tax_rate"), r.StrOrNull("time_zone")));
+        var address = await c.FirstOrDefaultAsync("SELECT address_line, city FROM sites WHERE id = $id",
+            r => string.Join(", ", new[] { r.StrOrNull("address_line"), r.StrOrNull("city") }.Where(x => !string.IsNullOrWhiteSpace(x))),
+            null, ("$id", sale.SiteId));
+        var regime = await TaxRegimeAsync(c, null);
+        return new Printing.SaleTicketData(sale, await LinesAsync(c, null, saleId), payments, company, sale.SiteName, address, regime.TaxName);
+    }
+
     public async Task<DashboardSummary> GetDashboardAsync(CancellationToken ct = default)
     {
         await using var c = await Db.OpenAsync(ct);
@@ -236,20 +318,20 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         var yesterday = StartOfDay(1);
         var now = Clock.GetUtcNow();
         async Task<(int Count, decimal Total)> Window(DateTimeOffset from, DateTimeOffset to) =>
-            (await c.QueryAsync("""
+            (await c.QueryAsync($"""
                 SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS t FROM sales
-                WHERE status = 'completed' AND created_at >= $from AND created_at < $to
+                WHERE status = 'completed' AND created_at >= $from AND created_at < $to{SiteFilter("site_id")}
                 """, r => (r.Int("n"), r.Dec("t")), null, ("$from", from), ("$to", to)))[0];
 
         var todayTotals = await Window(today, now.AddMinutes(1));
         // Comparación justa: ayer hasta la misma hora.
         var yesterdayTotals = await Window(yesterday, now - (today - yesterday));
         var week = await Window(StartOfDay(6), now.AddMinutes(1));
-        var voided = await c.ScalarAsync<int>("SELECT COUNT(*) FROM sales WHERE status = 'voided' AND created_at >= $from", null,
+        var voided = await c.ScalarAsync<int>($"SELECT COUNT(*) FROM sales WHERE status = 'voided' AND created_at >= $from{SiteFilter("site_id")}", null,
             ("$from", StartOfDay(6)));
-        var byMethod = (await c.QueryAsync("""
+        var byMethod = (await c.QueryAsync($"""
             SELECT p.method, SUM(p.amount) AS amount FROM sale_payments p JOIN sales s ON s.id = p.sale_id
-            WHERE s.status = 'completed' AND s.created_at >= $from GROUP BY p.method ORDER BY amount DESC
+            WHERE s.status = 'completed' AND s.created_at >= $from{SiteFilter("s.site_id")} GROUP BY p.method ORDER BY amount DESC
             """, r => (r.Str("method"), r.Dec("amount")), null, ("$from", today))).ToDictionary(x => x.Item1, x => x.Item2);
         var currency = await c.ScalarAsync<string?>("SELECT currency_code FROM company WHERE id = 1") ?? "PEN";
 
@@ -262,11 +344,11 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     public async Task<IReadOnlyList<TopItem>> GetTopItemsAsync(int days = 7, int limit = 6, CancellationToken ct = default)
     {
         await using var c = await Db.OpenAsync(ct);
-        return await c.QueryAsync("""
+        return await c.QueryAsync($"""
             SELECT l.item_id, MAX(l.name) AS name, MAX(l.sku) AS sku, SUM(l.quantity - l.returned_qty) AS qty,
                    SUM(l.total * (l.quantity - l.returned_qty) / l.quantity) AS total
             FROM sale_lines l JOIN sales s ON s.id = l.sale_id
-            WHERE s.status = 'completed' AND s.created_at >= $from
+            WHERE s.status = 'completed' AND s.created_at >= $from{SiteFilter("s.site_id")}
             GROUP BY l.item_id HAVING qty > 0 ORDER BY total DESC LIMIT $limit
             """, r => new TopItem(r.Guid("item_id"), r.Str("name"), r.StrOrNull("sku"), r.Dec("qty"), Math.Round(r.Dec("total"), 2, MidpointRounding.AwayFromZero)), null,
             ("$from", StartOfDay(days - 1)), ("$limit", limit));

@@ -32,11 +32,16 @@ hasta que vuelve por el feed; si el hub la rechaza aparece en **Configuración �
 - Roles del POS (`session.Access.Role`, los asigna el OrgAdmin): `cajero` (vende, abre caja, registra clientes),
   `supervisor` (además anula, devuelve, cierra caja, descuentos sin límite y ve la auditoría) y `administrador`
   (todo, también el catálogo). OrgAdmin y PlatformAdmin del hub son administradores. Sin rol asignado: `cajero`.
+  Ingresos y retiros de efectivo, reportes X y Z y la configuración de la tienda son de `supervisor` en adelante.
+- Tiendas por usuario: si el OrgAdmin asigna tiendas al usuario en el hub (`Access.SiteIds`), solo abre caja en
+  ellas y en Ventas y el panel ve solo sus ventas. Sin tiendas asignadas, o siendo OrgAdmin, todas.
 
 ## Datos propios del POS
 
-Ventas (líneas y pagos), devoluciones y turnos de caja. Las ventas viajan como eventos; los turnos de caja son de
-cada equipo y no se publican.
+Ventas (líneas y pagos), devoluciones y turnos de caja con sus ingresos, retiros y conteo por denominación. Las ventas
+viajan como eventos; los turnos de caja y los tickets en espera son de cada equipo y no se publican. La configuración
+de cada tienda (texto del ticket, ancho del papel, cierre ciego, cajón) la comparten sus cajas con
+`pos.record.upserted`. La impresora de tickets es de cada caja y se guarda en el equipo.
 
 ## Eventos (versión 1)
 
@@ -47,6 +52,7 @@ cada equipo y no se publican.
 | `sale.completed` | Al cobrar | Id de la venta |
 | `sale.voided` | Al anular una venta sin devoluciones | `DeterministicId("sale_void", saleId)` |
 | `sale.returned` | Al registrar una devolución (parcial o total) | Id de la devolución |
+| `pos.record.upserted` | Al guardar la configuración de una tienda (solo la leen las otras cajas del POS) | Nuevo en cada cambio |
 
 `sale.completed` lleva el formato v1 (`saleId`, `number`, `siteId`, `customerId`, `subtotal`, `tax`, `total`, `lines`,
 `payments`) y agrega `discount`, `createdBy` y, por línea, `name` y `taxable`. En `payments`, el efectivo va por lo
@@ -59,6 +65,7 @@ aplicado a la venta (sin el vuelto).
 | `stock.adjusted` (WMS) | Guarda el saldo absoluto (`quantityOnHand`) por tienda y artículo; se muestra al vender y en el catálogo |
 | `invoice.issued` (ERP) | Si trae `saleId`, anota el número de comprobante en la venta |
 | `sale.completed`, `sale.voided`, `sale.returned` (otra caja POS) | Ver abajo |
+| `pos.record.upserted` (otra caja POS) | Guarda la configuración de la tienda si es más reciente que la que tiene (`updatedAt`; a igual hora, desempata `updatedBy`) |
 
 - Cada evento se aplica una sola vez (`processed_events`), en la misma transacción que su efecto.
 - `schemaVersion` distinto de 1 o `data` ilegible se registran como ignorados y no traban el feed.
@@ -72,7 +79,7 @@ El POS se suscribe también a sus propios eventos (`IncludeOwnEvents = true`):
 2. Los documentos se numeran por equipo (`V-3F0C-000012`, `DEV-3F0C-000003`, `CAJA-3F0C-000001`) para no chocar sin
    conexión; el prefijo sale del Id del equipo y se ve en Configuración.
 3. El arqueo solo cuenta las ventas y devoluciones hechas en el turno de esa caja.
-4. Una anulación hecha en dos cajas a la vez genera el mismo Id de evento y el hub la deduplica.
+. Si dos cajas cambian la configuración de la tienda sin conexión, todas terminan con el cambio más reciente.
 
 ### Limitaciones conocidas
 

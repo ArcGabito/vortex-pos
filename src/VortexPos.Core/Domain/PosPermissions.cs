@@ -28,6 +28,15 @@ public static class PosPermissions
 
     public const string ViewAudit = "audit.view";
 
+    /// <summary>Ingresos y retiros de efectivo del cajón.</summary>
+    public const string CashMovement = "cash.movement";
+
+    /// <summary>Reporte X (parcial) del turno, con el efectivo esperado.</summary>
+    public const string CashReport = "cash.report";
+
+    /// <summary>Configuración de la tienda que comparten sus cajas (ticket, cierre ciego).</summary>
+    public const string StoreSettings = "store.settings";
+
     /// <summary>Descuento máximo de un cajero: 10 % del importe de la línea.</summary>
     public const decimal CashierDiscountLimit = 0.10m;
 
@@ -36,7 +45,8 @@ public static class PosPermissions
 
     public static readonly PermissionMatrix Matrix = PermissionMatrix.Create(Cashier,
         (Cashier, [Sell, OpenCash, CreateCustomer]),
-        (Supervisor, [Sell, OpenCash, CreateCustomer, DiscountUnlimited, Void, Return, CloseCash, ViewAudit]));
+        (Supervisor, [Sell, OpenCash, CreateCustomer, DiscountUnlimited, Void, Return, CloseCash, ViewAudit, CashMovement, CashReport,
+            StoreSettings]));
 
     public static string Describe(string permission) => permission switch
     {
@@ -49,6 +59,9 @@ public static class PosPermissions
         CreateCustomer => T("permiso.createcustomer"),
         EditCatalog => T("permiso.editcatalog"),
         ViewAudit => T("permiso.viewaudit"),
+        CashMovement => T("permiso.cashmovement"),
+        CashReport => T("permiso.cashreport"),
+        StoreSettings => T("permiso.storesettings"),
         _ => permission,
     };
 }

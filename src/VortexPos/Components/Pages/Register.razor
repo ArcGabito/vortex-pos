@@ -59,10 +59,17 @@ else
                     <h3>@T("register.venta_actual")</h3>
                     <div class="sub">@_session.SiteName · @_session.Number</div>
                 </div>
-                @if (_cart.Count > 0)
-                {
-                    <button class="btn btn-ghost btn-sm" @onclick="Clear"><Icon Name="trash" Size="16" />@T("register.vaciar")</button>
-                }
+                <div style="display:flex;gap:4px">
+                    @if (_held.Count > 0)
+                    {
+                        <button class="btn btn-sm" @onclick="() => _showHeld = true" title="@(T("register.tickets_en_espera"))"><Icon Name="clock" Size="16" />@_held.Count</button>
+                    }
+                    @if (_cart.Count > 0)
+                    {
+                        <button class="btn btn-ghost btn-sm" @onclick="StartHold" title="@(T("register.poner_en_espera"))"><Icon Name="clock" Size="16" />@T("register.en_espera")</button>
+                        <button class="btn btn-ghost btn-sm" @onclick="Clear"><Icon Name="trash" Size="16" />@T("register.vaciar")</button>
+                    }
+                </div>
             </div>
             <div class="card-body cart-body">
                 <div class="field">
@@ -220,9 +227,49 @@ else
             </div>
         </ChildContent>
         <Footer>
-            <a class="btn" href="ventas">@T("register.ver_ventas")</a>
+            <button class="btn" @onclick="() => PrintSaleAsync(r.SaleId)"><Icon Name="receipt" Size="18" />@T("register.imprimir_ticket")</button>
             <button class="btn btn-dark" @onclick="NewSale">@T("register.nueva_venta")</button>
         </Footer>
+    </Modal>
+}
+
+@if (_holding)
+{
+    <Modal Title="@(T("register.poner_en_espera"))" Subtitle="@(T("register.la_caja_queda_libre_para"))" Size="sm" Error="@_error" OnClose="() => _holding = false">
+        <ChildContent>
+            <div class="field">
+                <label>@T("register.para_reconocerlo_opcional")</label>
+                <input class="control" placeholder="@(T("register.ej_senora_de_rojo"))" @bind="_holdLabel" />
+            </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _holding = false">@T("register.volver")</button>
+            <button class="btn btn-dark" disabled="@_busy" @onclick="HoldAsync"><Icon Name="clock" Size="18" />@T("register.poner_en_espera")</button>
+        </Footer>
+    </Modal>
+}
+
+@if (_showHeld)
+{
+    <Modal Title="@(T("register.tickets_en_espera"))" Subtitle="@(T("register.retoma_uno_para_seguir_cobrando"))" OnClose="() => _showHeld = false">
+        <ChildContent>
+            @foreach (var h in _held)
+            {
+                <div class="list-row" @key="h.Id">
+                    <div class="two-line">
+                        <span class="t1">@(h.Label ?? h.CustomerName ?? T("register.ticket_de", Fmt.Time(h.CreatedAt)))</span>
+                        <span class="t2">@Fmt.Count(h.Lines, T("count.articulo"), T("count.articulos")) · @Fmt.Ago(h.CreatedAt)@(h.UserName is null ? "" : $" · {h.UserName}")</span>
+                    </div>
+                    <strong class="end">@Fmt.Money(h.Total, Currency)</strong>
+                    <button class="btn btn-ghost icon-btn sm" @onclick="() => DiscardHeldAsync(h)" aria-label="@(T("register.descartar"))" title="@(T("register.descartar"))"><Icon Name="trash" Size="16" /></button>
+                    <button class="btn btn-dark btn-sm" @onclick="() => ResumeHeldAsync(h)">@T("register.retomar")</button>
+                </div>
+            }
+            @if (_cart.Count > 0)
+            {
+                <div class="alert info"><Icon Name="alert" Size="18" /><span>@T("register.al_retomar_la_venta_actual")</span></div>
+            }
+        </ChildContent>
     </Modal>
 }
 
@@ -252,6 +299,10 @@ else
     private readonly Dictionary<string, string?> _references = [];
     private SaleReceipt? _receipt;
     private string? _error;
+    private IReadOnlyList<HeldSaleRow> _held = [];
+    private StoreSettings _store = StoreSettings.Default;
+    private bool _holding, _showHeld;
+    private string? _holdLabel;
 
     private string Currency => _cart.FirstOrDefault()?.Item.CurrencyCode ?? "PEN";
     private SaleTotals Totals => SalesService.Totals(_cart.Where(l => l.Quantity > 0).Select(l => (l.Total, Math.Min(l.Discount, l.Quantity * l.UnitPrice), l.Item.TaxCode)),
@@ -264,10 +315,12 @@ else
     {
         _session = await Pos.Cash.GetOpenAsync();
         _regime = await Pos.Sales.GetTaxRegimeAsync();
+        _held = await Pos.Sales.GetHeldAsync();
         if (_session is null)
             return;
         _categories = await Pos.Master.GetCategoriesAsync();
         _customers = await Pos.Master.GetPartyOptionsAsync(suppliers: false);
+        _store = await Pos.Stores.GetAsync(_session.SiteId);
         await LoadTilesAsync();
     }
 
@@ -358,7 +411,70 @@ else
         {
             _paying = false;
             _receipt = receipt;
+            if (_store.PrintAutomatically && Printer.IsConfigured)
+                await PrintSaleAsync(receipt!.SaleId);
         }
+    }
+
+    // ---------- Tickets en espera ----------
+
+    private void StartHold()
+    {
+        _error = null;
+        _holdLabel = null;
+        _holding = true;
+    }
+
+    private async Task HoldAsync()
+    {
+        var lines = _cart.Where(l => l.Quantity > 0)
+            .Select(l => new CartLine(l.Item.Id, l.Quantity, l.UnitPrice, Math.Min(l.Discount, l.Quantity * l.UnitPrice))).ToList();
+        _busy = true;
+        _error = await TryAsync(() => Pos.Sales.HoldAsync(lines, _customerId, _holdLabel), T("register.ticket_en_espera"));
+        _busy = false;
+        if (_error is not null)
+            return;
+        _holding = false;
+        Clear();
+        _held = await Pos.Sales.GetHeldAsync();
+    }
+
+    /// <summary>Retoma un ticket en espera. Si había una venta a medias, queda en espera en su lugar.</summary>
+    private async Task ResumeHeldAsync(HeldSaleRow row)
+    {
+        if (_cart.Count > 0)
+        {
+            var current = _cart.Where(l => l.Quantity > 0)
+                .Select(l => new CartLine(l.Item.Id, l.Quantity, l.UnitPrice, Math.Min(l.Discount, l.Quantity * l.UnitPrice))).ToList();
+            if (current.Count > 0 && await TryAsync(() => Pos.Sales.HoldAsync(current, _customerId, null)) is { } holdError)
+            {
+                Toasts.Error(holdError);
+                return;
+            }
+        }
+        HeldSale? held = null;
+        if (await TryAsync(async () => held = await Pos.Sales.ResumeHeldAsync(row.Id)) is { } error)
+        {
+            Toasts.Error(error);
+            return;
+        }
+        Clear();
+        foreach (var line in held!.Lines)
+        {
+            if (await Pos.Master.GetItemAsync(line.ItemId, _session?.SiteId) is { } item)
+                _cart.Add(new CartItem { Item = item, Quantity = line.Quantity, UnitPrice = line.UnitPrice ?? item.Price, Discount = line.Discount });
+        }
+        _customerId = held.CustomerId;
+        _held = await Pos.Sales.GetHeldAsync();
+        _showHeld = false;
+    }
+
+    private async Task DiscardHeldAsync(HeldSaleRow row)
+    {
+        await Pos.Sales.DiscardHeldAsync(row.Id);
+        _held = await Pos.Sales.GetHeldAsync();
+        if (_held.Count == 0)
+            _showHeld = false;
     }
 
     private async Task NewSale()

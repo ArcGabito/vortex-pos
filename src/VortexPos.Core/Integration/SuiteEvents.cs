@@ -11,6 +11,9 @@ public static class SuiteEvents
     public const string SaleVoided = "sale.voided";
     public const string SaleReturned = "sale.returned";
 
+    // Replicación interna entre las cajas de una organización
+    public const string PosRecordUpserted = "pos.record.upserted";
+
     // Consume el POS
     public const string StockAdjusted = "stock.adjusted";
     public const string InvoiceIssued = "invoice.issued";
@@ -46,3 +49,15 @@ public sealed record StockAdjusted(Guid SiteId, Guid ItemId, decimal QuantityDel
 
 /// <summary><c>invoice.issued</c> del ERP: si viene de una venta de caja, trae <c>saleId</c>.</summary>
 public sealed record InvoiceIssued(Guid InvoiceId, string? Number, Guid? CustomerId, Guid? SaleId, decimal Total, string? CurrencyCode);
+
+/// <summary>
+/// <c>pos.record.upserted</c>: replicación interna del POS entre las cajas de una organización (por ahora, la
+/// configuración de cada tienda). Gana el registro con <c>updatedAt</c> más reciente.
+/// </summary>
+public sealed record PosRecordUpserted(string Kind, string Id, System.Text.Json.JsonElement Data, DateTimeOffset UpdatedAt,
+    string? UpdatedBy = null);
+
+public static class PosRecordKinds
+{
+    public const string StoreSettings = "store_settings";
+}

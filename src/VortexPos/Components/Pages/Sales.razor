@@ -191,6 +191,10 @@
             {
                 <button class="btn" @onclick="() => StartReturnAsync(d)"><Icon Name="undo" Size="18" />@T("sales.devolucion")</button>
             }
+            @if (Printer.IsConfigured)
+            {
+                <button class="btn" @onclick="() => PrintSaleAsync(d.Id, reprint: true)"><Icon Name="receipt" Size="18" />@T("sales.reimprimir")</button>
+            }
             <button class="btn btn-dark" @onclick="() => _detail = null">@T("sales.cerrar")</button>
         </Footer>
     </Modal>
