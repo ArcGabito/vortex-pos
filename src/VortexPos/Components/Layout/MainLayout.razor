@@ -35,10 +35,11 @@
             </nav>
 
             <div class="promo">
-                <Logo IconOnly Size="64" />
-                <h4 style="margin-top:8px">@T("nav.libre_de_codigo_abierto")</h4>
+                <h4>@T("nav.libre_de_codigo_abierto")</h4>
                 <p>@T("nav.vortex_pos_es_agpl_3")</p>
-                <button class="btn btn-accent btn-sm" @onclick="OpenRepoAsync">@T("nav.contribuir")</button>
+                <div class="links">
+                    <button class="btn btn-sm" @onclick="OpenRepoAsync"><Icon Name="external" Size="15" />@T("nav.contribuir")</button>
+                </div>
             </div>
         </aside>
 
@@ -48,6 +49,13 @@
                 <ErrorBoundary @ref="_boundary">
                     @Body
                 </ErrorBoundary>
+                <footer class="app-foot">
+                    <span>@T("nav.pie_derechos", DateTime.Now.Year)</span>
+                    <div class="seals">
+                        <span class="seal"><Icon Name="check" Size="15" Stroke="2.4" />@T("nav.codigo_abierto")</span>
+                        <span class="seal"><Icon Name="check" Size="15" Stroke="2.4" />@T("nav.funciona_sin_conexion")</span>
+                    </div>
+                </footer>
             </div>
         </div>
     </div>

@@ -1,34 +1,28 @@
 @page "/"
 @inherits PosPage
 
-<SectionContent SectionName="page-title">@T("home.panel")</SectionContent>
-
-@if (_summary is { } s)
-{
-    <div class="stat-strip">
-        <StatTile Icon="wallet" Label="@(T("home.vendido_hoy"))" Value="@Fmt.MoneyCompact(s.SalesToday, s.CurrencyCode)" Delta="s.SalesChangePct" Hint="@(s.SalesChangePct is null ? null : T("home.vs_ayer_esta_hora"))" />
-        <StatTile Icon="receipt" Label="@(T("home.tickets_hoy"))" Value="@Fmt.Compact(s.TicketsToday)" Hint="@(T("home.promedio", (Fmt.Money(s.AverageTicket, s.CurrencyCode))))" />
-        <StatTile Icon="arrows" Label="@(T("home.ultimos_7_dias"))" Value="@Fmt.MoneyCompact(s.Sales7d, s.CurrencyCode)" />
-        <StatTile Icon="ban" Label="@(T("home.anuladas"))" Value="@Fmt.Compact(s.Voided7d)" UpIsGood="false" Hint="@(T("home.ultimos_7_dias_2"))" />
-    </div>
-}
+<SectionContent SectionName="page-title"><Icon Name="clock" Size="16" />@T("home.panel")</SectionContent>
 
 <div class="page">
-    <div class="page-head">
-        <div>
-            <h2>@T("home.hola", FirstName)</h2>
-            <p>@Session.Session?.Access.OrganizationName · @(_cash is { } c ? T("home.caja_abierta_en_desde_las", c.SiteName, c.OpenedAt.ToLocalTime()) : T("home.la_caja_esta_cerrada"))</p>
-        </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <div class="hero">
+        <div class="page-head">
+            <div>
+                <h2>@T("home.hola", FirstName)</h2>
+                <p><Icon Name="@(_cash is null ? "lock" : "clock")" Size="14" />@Session.Session?.Access.OrganizationName · @(_cash is { } c ? T("home.caja_abierta_en_desde_las", c.SiteName, c.OpenedAt.ToLocalTime()) : T("home.la_caja_esta_cerrada"))</p>
+            </div>
             @if (_cash is null)
             {
                 <a class="btn btn-outline" href="turnos?abrir=1"><Icon Name="unlock" Size="18" />@T("home.abrir_caja")</a>
             }
-            <a class="btn btn-dark" href="caja"><Icon Name="cart" Size="18" />@T("home.vender")</a>
+        </div>
+        <div class="earn-bar">
+            <span class="earn-icon"><Icon Name="wallet" Size="18" /></span>
+            <strong>@(_summary is { } t ? Fmt.Money(t.SalesToday, t.CurrencyCode) : "—")</strong>
+            <span class="label">@T("home.vendido_hoy")</span>
         </div>
     </div>
 
-    <div class="grid-2">
+    <div class="hero-grid">
         <div class="card">
             <div class="card-head">
                 <div>
@@ -40,7 +34,9 @@
             <div class="card-body" style="padding-top:12px">
                 @if (_recent.Count == 0)
                 {
-                    <EmptyState Icon="receipt" Title="@(T("home.aun_no_hay_ventas"))" Text="@(T("home.abre_la_caja_registra_tu"))" />
+                    <EmptyState Icon="receipt" Title="@(T("home.aun_no_hay_ventas"))" Text="@(T("home.abre_la_caja_registra_tu"))">
+                        <a class="btn btn-outline" href="caja"><Icon Name="cart" Size="18" />@T("home.vender")</a>
+                    </EmptyState>
                 }
                 else
                 {
@@ -66,56 +62,66 @@
             </div>
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
-            <div class="card">
-                <div class="card-head">
-                    <div>
-                        <h3>@T("home.cobrado_hoy")</h3>
-                        <div class="sub">@T("home.por_medio_de_pago")</div>
-                    </div>
-                </div>
-                <div class="card-body">
-                    @if (_summary is not { ByMethodToday.Count: > 0 } sum)
-                    {
-                        <div class="list-row"><span class="muted">@T("home.sin_cobros_hoy")</span></div>
-                    }
-                    else
-                    {
-                        var max = sum.ByMethodToday.Values.Max();
-                        @foreach (var (method, amount) in sum.ByMethodToday)
-                        {
-                            <div class="list-row" style="flex-wrap:wrap">
-                                <Icon Name="@Fmt.PaymentIcon(method)" Size="18" Class="faint" />
-                                <span>@Fmt.PaymentMethod(method)</span>
-                                <strong class="end">@Fmt.Money(amount, sum.CurrencyCode)</strong>
-                                <div class="bar"><span style="width:@((int)(amount / max * 100))%"></span></div>
-                            </div>
-                        }
-                    }
+        @if (_summary is { } s)
+        {
+            <div class="stat-panel">
+                <StatTile Icon="receipt" Label="@(T("home.tickets_hoy"))" Value="@Fmt.Compact(s.TicketsToday)" Hint="@(T("home.promedio", (Fmt.Money(s.AverageTicket, s.CurrencyCode))))" />
+                <StatTile Icon="wallet" Label="@(T("home.vendido_hoy"))" Value="@Fmt.MoneyCompact(s.SalesToday, s.CurrencyCode)" Delta="s.SalesChangePct" Hint="@(s.SalesChangePct is null ? null : T("home.vs_ayer_esta_hora"))" />
+                <StatTile Icon="arrows" Label="@(T("home.ultimos_7_dias"))" Value="@Fmt.MoneyCompact(s.Sales7d, s.CurrencyCode)" />
+                <StatTile Icon="ban" Label="@(T("home.anuladas"))" Value="@Fmt.Compact(s.Voided7d)" UpIsGood="false" Hint="@(T("home.ultimos_7_dias_2"))" />
+            </div>
+        }
+    </div>
+
+    <div class="grid-2 even">
+        <div class="card">
+            <div class="card-head">
+                <div>
+                    <h3>@T("home.cobrado_hoy")</h3>
+                    <div class="sub">@T("home.por_medio_de_pago")</div>
                 </div>
             </div>
-
-            <div class="card">
-                <div class="card-head">
-                    <div>
-                        <h3>@T("home.lo_mas_vendido")</h3>
-                        <div class="sub">@T("home.ultimos_7_dias")</div>
-                    </div>
-                </div>
-                <div class="card-body">
-                    @if (_top.Count == 0)
+            <div class="card-body">
+                @if (_summary is not { ByMethodToday.Count: > 0 } sum)
+                {
+                    <div class="list-row"><span class="muted">@T("home.sin_cobros_hoy")</span></div>
+                }
+                else
+                {
+                    var max = sum.ByMethodToday.Values.Max();
+                    @foreach (var (method, amount) in sum.ByMethodToday)
                     {
-                        <div class="list-row"><span class="muted">@T("home.todavia_no_hay_ventas_esta")</span></div>
-                    }
-                    @foreach (var item in _top)
-                    {
-                        <div class="list-row">
-                            <Avatar Text="@item.Name" Size="36" />
-                            <div class="two-line"><span class="t1">@item.Name</span><span class="t2">@T("home.vendidos", Fmt.Qty(item.Quantity))</span></div>
-                            <strong class="end">@Fmt.Money(item.Total, _summary?.CurrencyCode ?? "PEN")</strong>
+                        <div class="list-row" style="flex-wrap:wrap">
+                            <Icon Name="@Fmt.PaymentIcon(method)" Size="18" Class="faint" />
+                            <span>@Fmt.PaymentMethod(method)</span>
+                            <strong class="end">@Fmt.Money(amount, sum.CurrencyCode)</strong>
+                            <div class="bar"><span style="width:@((int)(amount / max * 100))%"></span></div>
                         </div>
                     }
+                }
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head">
+                <div>
+                    <h3>@T("home.lo_mas_vendido")</h3>
+                    <div class="sub">@T("home.ultimos_7_dias")</div>
                 </div>
+            </div>
+            <div class="card-body">
+                @if (_top.Count == 0)
+                {
+                    <div class="list-row"><span class="muted">@T("home.todavia_no_hay_ventas_esta")</span></div>
+                }
+                @foreach (var item in _top)
+                {
+                    <div class="list-row">
+                        <Avatar Text="@item.Name" Size="36" />
+                        <div class="two-line"><span class="t1">@item.Name</span><span class="t2">@T("home.vendidos", Fmt.Qty(item.Quantity))</span></div>
+                        <strong class="end">@Fmt.Money(item.Total, _summary?.CurrencyCode ?? "PEN")</strong>
+                    </div>
+                }
             </div>
         </div>
     </div>
