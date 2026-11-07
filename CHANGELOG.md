@@ -27,6 +27,13 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 - `docs/ROADMAP.md`: hoja de ruta para competir con Square, Lightspeed, Shopify POS y Loyverse.
 
 ### Changed
+- **Rediseño monocromático:** barra lateral gris claro con el enlace activo como tarjeta, barra superior con botón
+  **Vender**, pie con derechos y sellos, controles blancos con borde, cabeceras de tabla en tinta y pestañas en
+  mayúsculas. El Panel muestra lo vendido hoy en una barra oscura y los indicadores en un panel oscuro junto a las
+  ventas recientes.
+- **Morado .NET como color de la suite:** el naranja de la marca (`#FF5B14`) pasa a `#512BD4`, el morado de .NET,
+  en el acento de `app.css`, el logo, el ícono de la app, la pantalla de inicio, la barra de título y Android. La portada
+  del inicio de sesión se muestra en tonos morados con `filter: hue-rotate`. Los colores de estado no cambian.
 - `sale.completed` lleva la categoría de impuesto de cada línea (`taxCode`). El `taxCode` de los artículos es una
   categoría de la base común (`standard`, `reduced`, `zero`, `exempt`…); `igv`, `exonerado` e `inafecto` siguen valiendo.
 

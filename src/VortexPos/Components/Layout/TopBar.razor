@@ -25,6 +25,8 @@
         <span class="label">@ChipText</span>
     </button>
 
+    <a class="btn btn-dark new-sale" href="caja"><Icon Name="cart" Size="17" /><span class="label">@T("nav.vender")</span></a>
+
     <div class="menu-anchor">
         <button class="btn icon-btn round bell" @onclick="() => _panel = _panel == Panel.Alerts ? Panel.None : Panel.Alerts" aria-label="@(T("topbar.notificaciones"))">
             <Icon Name="bell" />
@@ -70,7 +72,7 @@
 
     <div class="menu-anchor">
         <button class="btn btn-ghost" style="padding:0;height:auto;border-radius:50%" @onclick="() => _panel = _panel == Panel.User ? Panel.None : Panel.User" aria-label="@(T("topbar.cuenta"))">
-            <Avatar Text="@Session.UserName" Size="44" Class="user" />
+            <Avatar Text="@Session.UserName" Size="40" Class="user" />
         </button>
         @if (_panel == Panel.User)
         {
