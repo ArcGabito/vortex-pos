@@ -168,5 +168,12 @@ internal static class Schema
         ALTER TABLE sale_lines ADD COLUMN list_price REAL;
         DELETE FROM sync_cursors WHERE stream = 'master';
         """,
+        // 5: promociones y cupones (fase 3b). El cupón de cada venta (para contar sus usos, también los de otras cajas) y
+        // la promoción de cada línea. Las promociones son registros del POS (pos_records, kind promotion).
+        """
+        ALTER TABLE sales ADD COLUMN coupon TEXT;
+        CREATE INDEX ix_sales_coupon ON sales (coupon);
+        ALTER TABLE sale_lines ADD COLUMN promotion_id TEXT;
+        """,
     ];
 }

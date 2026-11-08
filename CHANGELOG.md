@@ -8,6 +8,9 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Promociones y cupones (fase 3b):** porcentaje por artículo o categoría, lleva N paga M (2x1, 3x2) y descuento al
+  ticket desde un monto, con vigencia por fechas, días, horario y tiendas; cupones con límite de usos; descuento manual
+  al ticket. Se calculan igual en todas las cajas, también sin conexión, y la caja muestra exactamente lo que cobrará.
 - **Catálogo de la cadena (fase 3a):** escanear el código de una presentación del hub vende sus unidades (la caja de 12
   son 12); etiquetas de balanza de peso variable (EAN-13 con prefijo 2, por peso o por precio) configurables por tienda;
   cambiar el precio de una línea necesita permiso de supervisor (o su PIN) y queda auditado con el precio de lista.

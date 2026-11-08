@@ -67,6 +67,7 @@ else
                     }
                     @if (_cart.Count > 0)
                     {
+                        <button class="btn btn-ghost btn-sm" @onclick="EditTicketDiscount" title="@(T("register.descuento_al_ticket"))"><Icon Name="tag" Size="16" />%</button>
                         <button class="btn btn-ghost btn-sm" @onclick="StartHold" title="@(T("register.poner_en_espera"))"><Icon Name="clock" Size="16" />@T("register.en_espera")</button>
                         <button class="btn btn-ghost btn-sm" @onclick="Clear"><Icon Name="trash" Size="16" />@T("register.vaciar")</button>
                     }
@@ -82,6 +83,18 @@ else
                             <option value="@c.Id">@c.Label@(c.Detail is null ? "" : $" · {c.Detail}")</option>
                         }
                     </select>
+                </div>
+
+                <div class="field">
+                    <label>@T("register.cupon")</label>
+                    <div class="input-icon">
+                        <Icon Name="tag" Size="16" />
+                        <input class="control" placeholder="@(T("register.codigo_del_cupon"))" value="@_coupon" @onchange="e => _coupon = e.Value?.ToString()?.Trim() is { Length: > 0 } c ? c.ToUpperInvariant() : null" />
+                    </div>
+                    @if (_quoteError is not null)
+                    {
+                        <span class="hint bad-text">@_quoteError</span>
+                    }
                 </div>
 
                 @if (_cart.Count == 0)
@@ -106,13 +119,17 @@ else
                                         }
                                         @Fmt.Money(line.UnitPrice, line.Item.CurrencyCode) @(line.Weighed ? $"/ {line.Item.Unit}" : "c/u")@(line.Discount > 0 ? $" · −{Fmt.Money(line.Discount, line.Item.CurrencyCode)}" : "")
                                     </span>
+                                    @if (QuoteFor(line) is { PromotionDiscount: > 0 } q)
+                                    {
+                                        <span class="promo-tag"><Icon Name="tag" Size="13" />@(q.PromotionName ?? T("register.promocion")) −@Fmt.Money(q.PromotionDiscount, line.Item.CurrencyCode)</span>
+                                    }
                                 </div>
                                 <div class="qty">
                                     <button class="btn btn-ghost icon-btn sm" @onclick="() => Step(line, -1)" aria-label="@(T("register.quitar_uno"))"><Icon Name="minus" Size="16" /></button>
                                     <input class="control" type="number" min="0" step="any" @bind="line.Quantity" @bind:event="oninput" aria-label="@(T("register.cantidad"))" />
                                     <button class="btn btn-ghost icon-btn sm" @onclick="() => Step(line, 1)" aria-label="@(T("register.agregar_uno"))"><Icon Name="plus" Size="16" /></button>
                                 </div>
-                                <strong class="amount">@Fmt.Money(line.Total, line.Item.CurrencyCode)</strong>
+                                <strong class="amount">@Fmt.Money(QuoteFor(line)?.Total ?? line.Total, line.Item.CurrencyCode)</strong>
                                 <KebabMenu>
                                     <button @onclick="() => EditDiscount(line)"><Icon Name="tag" Size="18" />@T("register.descuento")</button>
                                     <button @onclick="() => EditPrice(line)"><Icon Name="edit" Size="18" />@T("register.cambiar_precio")</button>
@@ -126,9 +143,17 @@ else
                 <dl class="totals">
                     <dt>@T("register.subtotal")</dt><dd>@Fmt.Money(Totals.Subtotal, Currency)</dd>
                     <dt>@_regime.TaxName@(_regime.PricesIncludeTax ? T("register.incluido") : "")</dt><dd>@Fmt.Money(Totals.Tax, Currency)</dd>
-                    @if (Totals.Discount > 0)
+                    @foreach (var promo in _quote?.Promotions ?? [])
                     {
-                        <dt>@T("register.descuentos")</dt><dd>−@Fmt.Money(Totals.Discount, Currency)</dd>
+                        <dt class="promo-line">@promo.Name</dt><dd class="promo-line">−@Fmt.Money(promo.Amount, Currency)</dd>
+                    }
+                    @if (_ticketDiscount > 0)
+                    {
+                        <dt>@T("register.descuento_al_ticket")</dt><dd>−@Fmt.Money(_ticketDiscount, Currency) <button class="link-btn" @onclick="() => _ticketDiscount = 0">@T("register.quitar")</button></dd>
+                    }
+                    @if (ManualDiscounts > 0)
+                    {
+                        <dt>@T("register.descuentos")</dt><dd>−@Fmt.Money(ManualDiscounts, Currency)</dd>
                     }
                     <dt class="grand">@T("register.total")</dt><dd class="grand">@Fmt.Money(Totals.Total, Currency)</dd>
                 </dl>
@@ -150,6 +175,26 @@ else
             <button class="btn btn-accent" disabled="@(!CanCharge)" @onclick="OpenPayment">@T("register.cobrar", (Fmt.Money(Totals.Total, Currency)))</button>
         </div>
     }
+}
+
+@if (_editingTicket)
+{
+    <Modal Title="@(T("register.descuento_al_ticket"))" Subtitle="@(T("register.descuento_al_ticket_explica"))" Size="sm" Error="@_error" OnClose="() => _editingTicket = false">
+        <ChildContent>
+            <div class="field">
+                <label>@T("register.monto", Fmt.Symbol(Currency))</label>
+                <input class="control" type="number" inputmode="decimal" min="0" step="0.10" @bind="_ticketInput" />
+            </div>
+            @if (!Session.Can(PosPermissions.DiscountUnlimited))
+            {
+                <div class="alert info"><Icon Name="lock" Size="18" /><span>@T("register.mas_del_10_lo_autoriza")</span></div>
+            }
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _editingTicket = false">@T("register.cancelar")</button>
+            <button class="btn btn-dark" @onclick="ApplyTicketDiscount">@T("register.aplicar")</button>
+        </Footer>
+    </Modal>
 }
 
 @if (_priceFor is { } pf)
@@ -355,11 +400,75 @@ else
     private string? _holdLabel;
 
     private string Currency => _cart.FirstOrDefault()?.Item.CurrencyCode ?? "PEN";
-    private SaleTotals Totals => SalesService.Totals(_cart.Where(l => l.Quantity > 0).Select(l => (l.Total, Math.Min(l.Discount, l.Quantity * l.UnitPrice), l.Item.TaxCode)),
+
+    // Cotización del Core (promociones, cupón, descuentos): la caja muestra exactamente lo que se cobrará.
+    private SaleQuote? _quote;
+    private string? _quoteKey, _quoteError, _coupon;
+    private decimal _ticketDiscount, _ticketInput;
+    private bool _editingTicket;
+
+    private QuoteLine? QuoteFor(CartItem line) =>
+        _quote is { } q && _cart.First(c => c.Item.Id == line.Item.Id && c.Presentation?.Code == line.Presentation?.Code && c.UnitPrice == line.UnitPrice) == line
+            ? q.Lines.FirstOrDefault(l => l.ItemId == line.Item.Id && l.Presentation == line.Presentation?.Code && l.UnitPrice == line.UnitPrice)
+            : null;
+
+    private SaleDraft Draft(IReadOnlyList<PaymentDraft>? payments = null) =>
+        new(_cart.Where(l => l.Quantity > 0).Select(l => l.ToLine()).ToList(), payments ?? [], _customerId, null, _coupon, _ticketDiscount);
+
+    /// <summary>Cuando cambia la venta, se vuelve a cotizar en Core.</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+        var key = string.Join("|", _cart.Select(l => $"{l.Item.Id}:{l.Quantity}:{l.UnitPrice}:{l.Discount}:{l.Presentation?.Code}")) + $"|{_coupon}|{_ticketDiscount}";
+        if (key == _quoteKey)
+            return;
+        _quoteKey = key;
+        _quoteError = null;
+        if (!_cart.Any(l => l.Quantity > 0))
+            _quote = null;
+        else
+        {
+            try
+            {
+                _quote = await Pos.Sales.QuoteAsync(Draft());
+            }
+            catch (PosValidationException ex)
+            {
+                _quote = null;
+                _quoteError = ex.Message;
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void EditTicketDiscount()
+    {
+        _error = null;
+        _ticketInput = _ticketDiscount;
+        _editingTicket = true;
+    }
+
+    /// <summary>El permiso se revisa al cobrar: si el cajero no lo tiene, ahí se pide el PIN del supervisor.</summary>
+    private void ApplyTicketDiscount()
+    {
+        if (_ticketInput < 0)
+        {
+            _error = T("register.el_descuento_debe_estar_entre");
+            return;
+        }
+        _ticketDiscount = _ticketInput;
+        _editingTicket = false;
+    }
+
+    private SaleTotals Totals => _quote?.Totals ?? LocalTotals;
+
+    /// <summary>Descuentos manuales por línea (las promociones y el del ticket se muestran aparte).</summary>
+    private decimal ManualDiscounts => _quote is { } q ? q.Lines.Sum(l => l.ManualDiscount) : Totals.Discount;
+    private SaleTotals LocalTotals => SalesService.Totals(_cart.Where(l => l.Quantity > 0).Select(l => (l.Total, Math.Min(l.Discount, l.Quantity * l.UnitPrice), l.Item.TaxCode)),
         _regime, Currency);
     private VortexApi.Suite.Taxes.TaxRegime _regime = VortexApi.Suite.Taxes.TaxCatalog.For("PE");
     private decimal Paid => _payments.Values.Sum();
-    private bool CanCharge => _cart.Any(l => l.Quantity > 0) && _cart.All(l => l.Quantity >= 0);
+    private bool CanCharge => _cart.Any(l => l.Quantity > 0) && _cart.All(l => l.Quantity >= 0) && _quoteError is null;
 
     protected override async Task LoadAsync()
     {
@@ -439,6 +548,8 @@ else
     {
         _cart.Clear();
         _customerId = null;
+        _coupon = null;
+        _ticketDiscount = 0;
     }
 
     private void EditDiscount(CartItem line)
@@ -486,10 +597,7 @@ else
 
     private async Task ChargeAsync()
     {
-        var draft = new SaleDraft(
-            _cart.Where(l => l.Quantity > 0).Select(l => l.ToLine()).ToList(),
-            _payments.Where(p => p.Value > 0).Select(p => new PaymentDraft(p.Key, p.Value, _references.GetValueOrDefault(p.Key))).ToList(),
-            _customerId);
+        var draft = Draft(_payments.Where(p => p.Value > 0).Select(p => new PaymentDraft(p.Key, p.Value, _references.GetValueOrDefault(p.Key))).ToList());
         _busy = true;
         SaleReceipt? receipt = null;
         _error = await TryAsync(async () => receipt = await Pos.Sales.CheckoutAsync(draft));

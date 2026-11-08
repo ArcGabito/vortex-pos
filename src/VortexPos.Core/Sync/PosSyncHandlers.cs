@@ -80,7 +80,7 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
         {
             if (e.Source != ProductCode)
                 return "ignorado: los registros del POS solo los publica el POS";
-            if (record.Kind != PosRecordKinds.StoreSettings || string.IsNullOrEmpty(record.Id))
+            if (record.Kind is not (PosRecordKinds.StoreSettings or PosRecordKinds.Promotion) || string.IsNullOrEmpty(record.Id))
                 return $"ignorado: tipo de registro {record.Kind}";
             return await StoreSettingsService.UpsertAsync(c, tx, record) ? null : "ignorado: hay un cambio más reciente";
         }, ct);
