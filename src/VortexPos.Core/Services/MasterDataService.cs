@@ -36,13 +36,15 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
                 currency_code = excluded.currency_code, tax_code = excluded.tax_code,
                 track_inventory = excluded.track_inventory, is_active = excluded.is_active, version = excluded.version,
                 is_deleted = excluded.is_deleted, pending = 0, updated_at = excluded.updated_at
-            WHERE excluded.version > items.version
+            WHERE excluded.version > items.version OR (excluded.version = items.version AND items.pending = 0)
             """, tx, ("$id", change.EntityId), ("$sku", d.Sku), ("$name", d.Name), ("$kind", d.Kind), ("$desc", d.Description),
             ("$unit", d.Unit), ("$barcode", d.Barcode), ("$category", d.Category), ("$price", d.Price),
             ("$currency", d.CurrencyCode), ("$tax", d.TaxCode), ("$track", d.TrackInventory), ("$active", d.IsActive),
             ("$version", change.Version), ("$deleted", Deleted(change.Operation, d.Meta)), ("$updated", d.Meta.UpdatedAt));
 
-        // Las presentaciones son parte del artículo: si la versión se aplicó, quedan exactamente las que trae.
+        // Las presentaciones son parte del artículo: si la versión se aplicó, quedan exactamente las que trae. La misma
+        // versión también se aplica si no hay un cambio local sin enviar (son los mismos datos): así, al volver a bajar el catálogo tras la migración 4, los
+        // artículos que ya estaban reciben sus presentaciones.
         if (applied > 0)
         {
             await c.ExecAsync("DELETE FROM item_presentations WHERE item_id = $id", tx, ("$id", change.EntityId));
