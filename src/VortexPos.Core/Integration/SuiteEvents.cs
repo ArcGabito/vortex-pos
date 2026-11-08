@@ -28,11 +28,12 @@ public static class SuiteEvents
 public sealed record SaleCompleted(
     Guid SaleId, string Number, Guid SiteId, Guid? CustomerId, string CurrencyCode, decimal Subtotal, decimal Tax,
     decimal Total, IReadOnlyList<SaleLine> Lines, IReadOnlyList<SalePayment> Payments, decimal Discount = 0,
-    string? CreatedBy = null);
+    string? CreatedBy = null, string? Coupon = null);
 
 public sealed record SaleLine(
     Guid ItemId, string? Sku, decimal Quantity, decimal UnitPrice, decimal Discount, decimal Total, string? Name = null,
-    bool Taxable = true, string? TaxCode = null, string? Presentation = null, decimal? ListPrice = null);
+    bool Taxable = true, string? TaxCode = null, string? Presentation = null, decimal? ListPrice = null,
+    Guid? PromotionId = null);
 
 public sealed record SalePayment(string Method, decimal Amount);
 
@@ -64,4 +65,5 @@ public sealed record PosRecordUpserted(string Kind, string Id, System.Text.Json.
 public static class PosRecordKinds
 {
     public const string StoreSettings = "store_settings";
+    public const string Promotion = "promotion";
 }

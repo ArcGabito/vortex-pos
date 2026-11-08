@@ -116,7 +116,18 @@ public sealed record ScanMatch(ItemRow Item, decimal Quantity, ItemPresentationR
 public sealed record PaymentDraft(string Method, decimal Amount, string? Reference = null);
 
 /// <summary>Lo que se cobra en caja. En efectivo, <c>Amount</c> es lo que entrega el cliente (puede haber vuelto).</summary>
-public sealed record SaleDraft(IReadOnlyList<CartLine> Lines, IReadOnlyList<PaymentDraft> Payments, Guid? CustomerId = null, Guid? SiteId = null);
+/// <param name="Coupon">Cupón ingresado (activa las promociones de ese cupón).</param>
+/// <param name="TicketDiscount">Descuento manual a todo el ticket (se reparte entre las líneas); más del 10 % necesita permiso.</param>
+public sealed record SaleDraft(IReadOnlyList<CartLine> Lines, IReadOnlyList<PaymentDraft> Payments, Guid? CustomerId = null, Guid? SiteId = null,
+    string? Coupon = null, decimal TicketDiscount = 0);
+
+/// <summary>Cómo queda una línea agrupada (artículo, presentación y precio) con sus descuentos.</summary>
+public sealed record QuoteLine(Guid ItemId, string? Presentation, decimal UnitPrice, decimal Quantity, decimal Gross, decimal PromotionDiscount,
+    string? PromotionName, decimal ManualDiscount, decimal TicketShare, decimal Total);
+
+/// <summary>La venta tal como se cobraría: líneas, promociones aplicadas y totales (lo mismo que calcula el cobro).</summary>
+public sealed record SaleQuote(IReadOnlyList<QuoteLine> Lines, IReadOnlyList<PromotionEngine.Applied> Promotions, decimal TicketDiscount,
+    SaleTotals Totals);
 
 /// <summary>Totales de la venta. <c>Subtotal</c> es la base sin impuesto; con precios sin impuesto (EE. UU.) el impuesto se suma.</summary>
 public sealed record SaleTotals(decimal Subtotal, decimal Tax, decimal Discount, decimal Total);

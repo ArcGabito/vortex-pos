@@ -22,7 +22,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | # | Requisito | Estado | Fase |
 |---|---|---|---|
 | POS-01 | Búsqueda, lector de códigos de barras y categorías | Hecho | — |
-| POS-02 | Descuento por línea y por ticket, con límite por rol | Parcial: por línea | 3 |
+| POS-02 | Descuento por línea y por ticket, con límite por rol | Hecho | 3b |
 | POS-03 | Tickets en espera y varias ventas abiertas a la vez | Hecho | 2 |
 | POS-04 | Venta por presentación (caja × 12) con los códigos del hub | Hecho | 3a |
 | POS-05 | Variantes (talla, color) y modificadores (extras, sin cebolla) | Pendiente | 3 |
@@ -36,8 +36,8 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 |---|---|---|---|
 | POS-10 | Precio de lista del hub | Hecho | — |
 | POS-11 | Listas de precios por tienda, por cliente y por canal | Pendiente | 3 |
-| POS-12 | Promociones con reglas y vigencia (2x1, % por categoría, por horario, por monto) | Pendiente | 3 |
-| POS-13 | Cupones de un uso o de campaña | Pendiente | 3 |
+| POS-12 | Promociones con reglas y vigencia (2x1, % por categoría, por horario, por monto) | Hecho | 3b |
+| POS-13 | Cupones de un uso o de campaña | Hecho | 3b |
 | POS-14 | Cambio de precio en caja solo con permiso, auditado | Hecho | 3a |
 
 ### Cobro
@@ -226,6 +226,17 @@ Etiquetas de peso variable EAN-13 (prefijo 20 a 29, PLU = SKU numérico del art�
 céntimos, con dígito de control), configurables por tienda. Cobrar a otro precio que el de lista necesita
 `sale.change_price` (supervisor, o su PIN), queda en la auditoría como `price.override` y la línea lleva `listPrice`.
 Pruebas en `CatalogTests`. Además, el buscador de la caja ya no pierde dígitos cuando un lector escribe rápido.
+
+**Estado 3b (2026-11):** hecha, sin las listas de precios: quedan para la 3c con la decisión 1 (en el hub, compartidas
+con el ERP y el CRM). Promociones de la cadena como registros del POS (`pos.record.upserted`, kind `promotion`):
+porcentaje por artículo, categoría o todo; lleva N paga M (las unidades más baratas salen gratis); descuento al ticket
+(monto o porcentaje) desde una compra mínima; con vigencia por fechas, días, horario y tiendas. Se evalúan en Core
+(`PromotionEngine`): cada línea recibe a lo más una promoción de línea (primero la que más descuenta en total, a igual
+descuento la de menor Id) y después la mejor de ticket, repartida en proporción; dos cajas sin conexión dan el mismo
+total. Cupones: activan sus promociones y pueden limitar sus usos, contando también las ventas que llegan de otras
+cajas (sin conexión, dos cajas podrían usar el mismo cupón una vez cada una). Descuento manual al ticket repartido entre
+las líneas (más del 10 % necesita permiso). La caja muestra la cotización de Core (`QuoteAsync`), así lo que se ve es lo
+que se cobra. `sale.completed` gana `coupon` y, por línea, `promotionId`. Pruebas en `PromotionsTests`.
 
 ## Fase 4: postventa y clientes · M
 

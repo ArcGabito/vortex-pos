@@ -1,0 +1,234 @@
+@page "/promociones"
+@inherits PosPage
+
+<SectionContent SectionName="page-title">@T("promos.promociones")</SectionContent>
+
+<div class="page">
+    <div class="page-head">
+        <div>
+            <h2>@T("promos.promociones")</h2>
+            <p>@T("promos.explica")</p>
+        </div>
+        @if (Session.Can(PosPermissions.ManagePromotions))
+        {
+            <button class="btn btn-dark" @onclick="() => Abrir(null)"><Icon Name="plus" Size="18" />@T("promos.nueva")</button>
+        }
+    </div>
+
+    @if (_lista.Count == 0 && !Loading)
+    {
+        <EmptyState Icon="tag" Title="@(T("promos.sin_promociones"))" Text="@(T("promos.sin_promociones_explica"))" />
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                @foreach (var p in _lista)
+                {
+                    <button class="list-row promo-row" @key="p.Id" @onclick="() => Abrir(p)" disabled="@(!Session.Can(PosPermissions.ManagePromotions))">
+                        <span class="two-line" style="flex:1">
+                            <span class="t1">@p.Name</span>
+                            <span class="t2">@Resumen(p)</span>
+                        </span>
+                        @if (p.CouponCode is { } cupon)
+                        {
+                            <span class="tag">@cupon</span>
+                        }
+                        <StatusPill Text="@(p.IsActive ? T("promos.activa") : T("promos.inactiva"))" Tone="@(p.IsActive ? "good" : "neutral")" />
+                    </button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (_form is { } f)
+{
+    <Modal Title="@(f.Id == Guid.Empty ? T("promos.nueva") : f.Name)" Size="lg" Error="@_error" OnClose="() => _form = null">
+        <ChildContent>
+            <div class="field">
+                <label>@T("promos.nombre")</label>
+                <input class="control" placeholder="@(T("promos.nombre_ej"))" @bind="f.Name" />
+            </div>
+            <div class="field">
+                <label>@T("promos.tipo")</label>
+                <div class="segmented">
+                    @foreach (var kind in PromotionKinds.All)
+                    {
+                        <button class="@(f.Kind == kind ? "on" : "")" @onclick="() => f.Kind = kind">@T($"promos.kind.{kind}")</button>
+                    }
+                </div>
+            </div>
+
+            @if (f.Kind != PromotionKinds.Ticket)
+            {
+                <div class="grid-2">
+                    <div class="field">
+                        <label>@T("promos.aplica_a")</label>
+                        <select class="select" @bind="f.Scope">
+                            <option value="all">@T("promos.todo")</option>
+                            <option value="category">@T("promos.una_categoria")</option>
+                            <option value="item">@T("promos.un_articulo")</option>
+                        </select>
+                    </div>
+                    @if (f.Scope == "category")
+                    {
+                        <div class="field">
+                            <label>@T("promos.categoria")</label>
+                            <select class="select" @bind="f.Category">
+                                <option value="">@T("promos.elige")</option>
+                                @foreach (var cat in _categorias)
+                                {
+                                    <option value="@cat">@cat</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    else if (f.Scope == "item")
+                    {
+                        <div class="field">
+                            <label>@T("promos.articulo")@(f.ItemName is null ? "" : $": {f.ItemName}")</label>
+                            <ItemPicker OnSelected="i => { f.ItemId = i.Id; f.ItemName = i.Name; }" />
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="grid-2">
+                @if (f.Kind == PromotionKinds.Percent)
+                {
+                    <div class="field"><label>@T("promos.porcentaje")</label><input class="control" type="number" inputmode="decimal" min="1" max="100" @bind="f.Percent" /></div>
+                }
+                else if (f.Kind == PromotionKinds.BuyPay)
+                {
+                    <div class="field"><label>@T("promos.lleva")</label><input class="control" type="number" inputmode="numeric" min="2" @bind="f.Buy" /></div>
+                    <div class="field"><label>@T("promos.paga")</label><input class="control" type="number" inputmode="numeric" min="0" @bind="f.Pay" /></div>
+                }
+                else
+                {
+                    <div class="field"><label>@T("promos.monto_de_descuento")</label><input class="control" type="number" inputmode="decimal" min="0" placeholder="@(T("promos.o_porcentaje"))" @bind="f.Amount" /></div>
+                    <div class="field"><label>@T("promos.porcentaje")</label><input class="control" type="number" inputmode="decimal" min="0" max="100" placeholder="@(T("promos.o_monto"))" @bind="f.Percent" /></div>
+                    <div class="field"><label>@T("promos.compra_minima")</label><input class="control" type="number" inputmode="decimal" min="0" @bind="f.MinAmount" /></div>
+                }
+            </div>
+
+            <div class="grid-2">
+                <div class="field"><label>@T("promos.desde")</label><input class="control" type="date" @bind="f.StartsOn" /></div>
+                <div class="field"><label>@T("promos.hasta")</label><input class="control" type="date" @bind="f.EndsOn" /></div>
+                <div class="field"><label>@T("promos.desde_la_hora")</label><input class="control" type="time" @bind="f.FromTime" /></div>
+                <div class="field"><label>@T("promos.hasta_la_hora")</label><input class="control" type="time" @bind="f.ToTime" /></div>
+            </div>
+            <div class="field">
+                <label>@T("promos.dias")</label>
+                <div class="chips">
+                    @foreach (var d in new[] { 1, 2, 3, 4, 5, 6, 0 })
+                    {
+                        <button class="chip @(f.Days.Contains(d) ? "on" : "")" @onclick="() => { if (!f.Days.Remove(d)) f.Days.Add(d); }">@T($"promos.dia.{d}")</button>
+                    }
+                </div>
+                <span class="hint">@T("promos.dias_explica")</span>
+            </div>
+            <div class="grid-2">
+                <div class="field"><label>@T("promos.cupon")</label><input class="control" placeholder="@(T("promos.sin_cupon"))" @bind="f.CouponCode" /></div>
+                <div class="field"><label>@T("promos.usos_del_cupon")</label><input class="control" type="number" inputmode="numeric" min="1" placeholder="@(T("promos.sin_limite"))" disabled="@string.IsNullOrWhiteSpace(f.CouponCode)" @bind="f.MaxUses" /></div>
+            </div>
+            <label class="check"><input type="checkbox" @bind="f.IsActive" />@T("promos.activa")</label>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _form = null">@T("promos.cancelar")</button>
+            <button class="btn btn-dark" disabled="@_busy" @onclick="GuardarAsync">@T("promos.guardar")</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    private sealed class Form
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Kind { get; set; } = PromotionKinds.Percent;
+        public string Scope { get; set; } = "all";
+        public string? Category { get; set; }
+        public Guid? ItemId { get; set; }
+        public string? ItemName { get; set; }
+        public decimal? Percent { get; set; }
+        public int? Buy { get; set; } = 2;
+        public int? Pay { get; set; } = 1;
+        public decimal? Amount { get; set; }
+        public decimal? MinAmount { get; set; }
+        public DateTime? StartsOn { get; set; }
+        public DateTime? EndsOn { get; set; }
+        public TimeOnly? FromTime { get; set; }
+        public TimeOnly? ToTime { get; set; }
+        public List<int> Days { get; set; } = [];
+        public string? CouponCode { get; set; }
+        public int? MaxUses { get; set; }
+        public bool IsActive { get; set; } = true;
+        public IReadOnlyList<Guid>? SiteIds { get; set; }
+
+        public Promotion ToPromotion() => new(Id, Name, Kind,
+            Kind != PromotionKinds.Ticket && Scope == "category" ? Category : null,
+            Kind != PromotionKinds.Ticket && Scope == "item" ? ItemId : null,
+            Kind is PromotionKinds.Percent or PromotionKinds.Ticket ? Percent : null,
+            Kind == PromotionKinds.BuyPay ? Buy : null, Kind == PromotionKinds.BuyPay ? Pay : null,
+            Kind == PromotionKinds.Ticket ? MinAmount : null, Kind == PromotionKinds.Ticket ? Amount : null,
+            StartsOn is { } s ? DateOnly.FromDateTime(s) : null, EndsOn is { } e ? DateOnly.FromDateTime(e) : null,
+            Days.Count > 0 ? Days : null, FromTime, ToTime, SiteIds, CouponCode, string.IsNullOrWhiteSpace(CouponCode) ? null : MaxUses, IsActive);
+    }
+
+    private IReadOnlyList<Promotion> _lista = [];
+    private IReadOnlyList<string> _categorias = [];
+    private Form? _form;
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task LoadAsync()
+    {
+        _lista = await Pos.Promotions.ListAsync();
+        _categorias = await Pos.Master.GetCategoriesAsync();
+    }
+
+    private string Resumen(Promotion p)
+    {
+        var que = p.Kind switch
+        {
+            PromotionKinds.Percent => T("promos.resumen_porcentaje", p.Percent?.ToString("0.##")),
+            PromotionKinds.BuyPay => T("promos.resumen_lleva_paga", p.Buy, p.Pay),
+            _ => p.Amount is { } a ? T("promos.resumen_ticket_monto", a.ToString("0.00"), (p.MinAmount ?? 0).ToString("0.00"))
+                : T("promos.resumen_ticket_porcentaje", p.Percent?.ToString("0.##"), (p.MinAmount ?? 0).ToString("0.00")),
+        };
+        var donde = p.Category ?? (p.ItemId is not null ? T("promos.un_articulo") : null);
+        var cuando = p.StartsOn is null && p.EndsOn is null ? "" : $" · {p.StartsOn?.ToString("d MMM") ?? "…"} – {p.EndsOn?.ToString("d MMM") ?? "…"}";
+        return que + (donde is null ? "" : $" · {donde}") + cuando;
+    }
+
+    private async Task Abrir(Promotion? p)
+    {
+        _error = null;
+        if (p is null)
+        {
+            _form = new Form();
+            return;
+        }
+        var item = p.ItemId is { } id ? await Pos.Master.GetItemAsync(id) : null;
+        _form = new Form
+        {
+            Id = p.Id, Name = p.Name, Kind = p.Kind, Scope = p.ItemId is not null ? "item" : p.Category is not null ? "category" : "all",
+            Category = p.Category, ItemId = p.ItemId, ItemName = item?.Name, Percent = p.Percent, Buy = p.Buy ?? 2, Pay = p.Pay ?? 1,
+            Amount = p.Amount, MinAmount = p.MinAmount, StartsOn = p.StartsOn?.ToDateTime(TimeOnly.MinValue),
+            EndsOn = p.EndsOn?.ToDateTime(TimeOnly.MinValue), FromTime = p.FromTime, ToTime = p.ToTime, Days = p.Days?.ToList() ?? [],
+            CouponCode = p.CouponCode, MaxUses = p.MaxUses, IsActive = p.IsActive, SiteIds = p.SiteIds,
+        };
+    }
+
+    private async Task GuardarAsync()
+    {
+        if (_form is not { } f)
+            return;
+        _busy = true;
+        _error = await TryAsync(() => Pos.Promotions.SaveAsync(f.ToPromotion()), T("promos.guardada", f.Name));
+        _busy = false;
+        if (_error is null)
+            _form = null;
+    }
+}
