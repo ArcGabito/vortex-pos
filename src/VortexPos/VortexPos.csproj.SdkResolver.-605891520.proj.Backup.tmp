@@ -1,8 +1,0 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <ItemGroup>
-    <MissingWorkloadPack Include="Microsoft.iOS.Sdk.net10.0_27.1">
-      <Version>27.1.10018</Version>
-    </MissingWorkloadPack>
-  </ItemGroup>
-</Project>
