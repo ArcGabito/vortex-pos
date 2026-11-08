@@ -71,6 +71,16 @@ public sealed class CatalogTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Al_volver_a_bajar_el_catalogo_un_articulo_que_ya_estaba_recibe_sus_presentaciones()
+    {
+        // El café llegó antes de la migración (sin presentaciones); el feed lo vuelve a mandar con la misma versión.
+        Assert.Empty(await _t.Pos.Master.GetPresentationsAsync(_t.Coffee));
+        await _t.Pos.Master.ApplyItemAsync(Item(_t.Coffee, "CAFE-250", "Café tostado 250 g", 18.50m, null,
+            [new VortexItemPresentation("CJ6", "Caja x 6", 6, "17750000000999")]));
+        Assert.Equal(6m, (await _t.Pos.Master.ResolveScanAsync("17750000000999"))!.Quantity);
+    }
+
+    [Fact]
     public async Task La_etiqueta_de_balanza_agrega_el_peso_o_lo_que_equivale_al_precio()
     {
         var porPeso = ScaleLabel.Build("20", "00123", 1250);   // 1.250 kg
