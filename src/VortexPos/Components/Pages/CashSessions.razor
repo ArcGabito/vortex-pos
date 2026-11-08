@@ -26,7 +26,7 @@
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
                     <a class="btn btn-sm" href="caja"><Icon Name="cart" Size="16" />@T("cashsessions.vender")</a>
-                    @if (Session.Can(PosPermissions.CashMovement))
+                    @if (Session.CanOrApprove(PosPermissions.CashMovement))
                     {
                         <button class="btn btn-sm" @onclick="() => StartMovement(CashMovementKinds.In)"><Icon Name="plus" Size="16" />@T("cashsessions.ingreso")</button>
                         <button class="btn btn-sm" @onclick="() => StartMovement(CashMovementKinds.Out)"><Icon Name="minus" Size="16" />@T("cashsessions.retiro")</button>
@@ -35,11 +35,11 @@
                             <button class="btn btn-sm" @onclick="OpenDrawerAsync"><Icon Name="unlock" Size="16" />@T("cashsessions.abrir_cajon")</button>
                         }
                     }
-                    @if (Session.Can(PosPermissions.CashReport))
+                    @if (Session.CanOrApprove(PosPermissions.CashReport))
                     {
                         <button class="btn btn-sm" @onclick="() => ShowReportAsync(s.Id)"><Icon Name="list" Size="16" />@T("cashsessions.reporte_x")</button>
                     }
-                    @if (Session.Can(PosPermissions.CloseCash))
+                    @if (Session.CanOrApprove(PosPermissions.CloseCash))
                     {
                         <button class="btn btn-dark btn-sm" @onclick="StartClose"><Icon Name="lock" Size="16" />@T("cashsessions.cerrar_caja")</button>
                     }
@@ -129,7 +129,7 @@
                                         }
                                     </td>
                                     <td class="actions-col">
-                                        @if (t.ClosedAt is not null && Session.Can(PosPermissions.CashReport))
+                                        @if (t.ClosedAt is not null && Session.CanOrApprove(PosPermissions.CashReport))
                                         {
                                             <button class="btn btn-ghost btn-sm" @onclick="() => ShowReportAsync(t.Id)" title="@(T("cashsessions.reporte_z"))">Z</button>
                                         }

@@ -80,6 +80,14 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
         : _operator is { } o ? PosPermissions.Matrix.Can(o.Role, "User", permission)
         : PosPermissions.Matrix.Can(Session?.Access.Role, Session?.User.Role, permission);
 
+    /// <summary>
+    /// Si la acción se puede ofrecer en pantalla: el rol actual la permite, o algún supervisor con PIN en este equipo
+    /// podría autorizarla en el momento (al intentarla, la app pide su PIN).
+    /// </summary>
+    public bool CanOrApprove(string permission) =>
+        Can(permission) || Desk.Verifiers.Any(v =>
+            PosPermissions.Matrix.Can(PosPermissions.Matrix.EffectiveRole(v.Role, "User"), "User", permission));
+
     public Guid? UserId => _operator?.UserId ?? Session?.User.Id;
     public string UserName => _operator?.Name ?? Session?.User.FullName ?? "";
     public string? AuthorizedBy => _authorizer?.Name;
@@ -163,6 +171,8 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
     {
         if (_sessions is not { } sessions || _client is not { } client)
             return T("session.sin_sesion");
+        if (_operator is not null)
+            return T("session.pin_solo_de_la_sesion");
         try
         {
             await sessions.WithAccessTokenAsync(async token =>

@@ -1,5 +1,6 @@
 @page "/caja"
 @inherits PosPage
+@inject IJSRuntime JS
 
 <SectionContent SectionName="page-title">@T("register.vender")</SectionContent>
 
@@ -53,7 +54,7 @@ else
             }
         </section>
 
-        <aside class="card register-cart">
+        <aside class="card register-cart" id="venta-actual">
             <div class="card-head">
                 <div>
                     <h3>@T("register.venta_actual")</h3>
@@ -130,6 +131,18 @@ else
             </div>
         </aside>
     </div>
+
+    @if (_cart.Count > 0)
+    {
+        @* Celular: la venta queda debajo del catálogo; esta barra la muestra y cobra sin buscarla. *@
+        <div class="cart-dock">
+            <button class="cart-dock-info" @onclick='() => JS.InvokeVoidAsync("vortex.scrollTo", "venta-actual")'>
+                <Icon Name="cart" Size="18" />
+                <span>@T("register.n_en_la_venta", Fmt.Qty(_cart.Sum(l => l.Quantity)))</span>
+            </button>
+            <button class="btn btn-accent" disabled="@(!CanCharge)" @onclick="OpenPayment">@T("register.cobrar", (Fmt.Money(Totals.Total, Currency)))</button>
+        </div>
+    }
 }
 
 @if (_discountFor is { } d)

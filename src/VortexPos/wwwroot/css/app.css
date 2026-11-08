@@ -1041,7 +1041,7 @@ table.data .strong { font-weight: 700; color: var(--ink); }
 .login-cover {
     position: relative;
     overflow: hidden;
-    background: #0b0807;
+    background: #0d0c12;
 }
 
 .login-cover img {
@@ -1169,10 +1169,9 @@ table.data .strong { font-weight: 700; color: var(--ink); }
         background: var(--sidebar-bg);
         transform: translateX(-100%);
         transition: transform .2s ease-out;
-        box-shadow: var(--shadow-pop);
     }
 
-    .sidebar.open { transform: none; }
+    .sidebar.open { transform: none; box-shadow: var(--shadow-pop); }
     .sidebar-backdrop.open { display: block; position: fixed; inset: 0; z-index: 49; background: rgba(22, 21, 29, .3); }
 
     .topbar { padding: 0 16px; gap: 10px; min-height: 60px; }
@@ -1219,7 +1218,8 @@ table.data .strong { font-weight: 700; color: var(--ink); }
 .chip:hover { background: var(--surface-2); }
 .chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
 
-.totals { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; margin: 0; font-size: 13.5px; }
+.totals { display: grid; grid-template-columns: 1fr auto; gap: 8px 0; margin: 0; font-size: 13.5px; }
+.totals dd { padding-left: 16px; }
 .totals dt { color: var(--text-2); font-weight: 500; }
 .totals dd { margin: 0; text-align: right; font-weight: 600; white-space: nowrap; }
 .totals .grand { font-size: 18px; font-weight: 800; color: var(--ink); padding-top: 8px; border-top: 1px solid var(--border); }
@@ -1356,4 +1356,93 @@ table.data .strong { font-weight: 700; color: var(--ink); }
 
 @media (max-width: 960px) {
     .operator-chip .label { display: none; }
+}
+
+/* ---------- Celular: tablas como tarjetas, indicadores en 2×2 ---------- */
+
+@media (max-width: 640px) {
+    /* Cada fila es una tarjeta: la primera celda arriba a todo el ancho, los montos a la derecha, el menú arriba. */
+    table.data { min-width: 0 !important; }
+    table.data thead { display: none; }
+    table.data, table.data tbody { display: block; }
+    table.data tr {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 14px;
+        position: relative;
+        padding: 14px 0;
+        border-bottom: 1px solid var(--border);
+    }
+    table.data tr:has(> td.actions-col) { padding-right: 44px; }
+    table.data td { display: block; padding: 0; border: 0; min-width: 0; }
+    table.data td:first-child { flex: 1 1 100%; }
+    table.data td.check-col { flex: none; width: auto; }
+    table.data td.check-col + td { flex: 1 1 0; }
+    table.data td.num { margin-left: auto; }
+    table.data td.num ~ td.num { margin-left: 0; }
+    table.data td.actions-col { position: absolute; top: 8px; right: 0; width: auto; }
+    table.data td:empty { display: none; }
+    table.data tr:hover td { background: none; }
+
+    .stat-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat-panel .stat { padding: 16px; }
+    .stat-panel .stat:nth-child(2) { border-top: 0; }
+    .stat-panel .stat:nth-child(even) { border-left: 1px solid var(--on-ink-line); }
+    .stat-panel .stat-value strong { font-size: 22px; }
+
+    .page-head { gap: 12px; }
+    .page-head > div:last-child:not(:first-child) { width: 100%; }
+    .page-head > div:last-child:not(:first-child) > .btn { flex: 1; }
+    .app-foot .seals { display: none; }
+}
+
+/* Barra de la venta en curso (celular y tablet angosta): queda fija abajo mientras se elige del catálogo. */
+.cart-dock { display: none; }
+
+@media (max-width: 1100px) {
+    .cart-dock {
+        position: sticky;
+        bottom: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 18px;
+        padding: 10px 10px 10px 16px;
+        border-radius: var(--radius);
+        background: var(--ink);
+        color: var(--on-ink);
+        box-shadow: var(--shadow-pop);
+    }
+    .cart-dock-info { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; background: none; border: 0; color: inherit; font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+    .cart-dock .btn { flex: none; }
+}
+
+@media (max-width: 1100px) {
+    .cart-dock { margin-bottom: 10px; }
+    .cart-dock .btn { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .cart-dock .btn:hover:not(:disabled) { background: var(--accent-2); border-color: var(--accent-2); }
+    .cart-lines { max-height: none; }
+}
+
+@media (max-width: 640px) {
+    /* Línea de la venta: el nombre completo arriba, cantidad e importe debajo. */
+    .cart-line { grid-template-columns: auto 1fr auto; row-gap: 6px; }
+    .cart-line > .two-line { grid-column: 1 / -1; }
+    .cart-line > .two-line .t1 { white-space: normal; }
+    .cart-line .amount { justify-self: end; }
+}
+
+@media (max-width: 640px) {
+    .card-head { flex-wrap: wrap; }
+}
+
+@media (max-width: 640px) {
+    /* Barra superior del celular: el estado de sincronización vive en la campana; el título se recorta. */
+    .topbar { gap: 8px; padding: 0 12px; }
+    .topbar .page-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .topbar .spacer { display: none; }
+    .topbar .sync-chip { display: none; }
+    .operator-chip { width: 40px; height: 40px; padding: 0; justify-content: center; flex: none; }
 }
