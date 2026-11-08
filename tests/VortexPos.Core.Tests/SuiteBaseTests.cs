@@ -61,15 +61,15 @@ public sealed class SuiteBaseTests
             var session = await t.OpenCashAsync();
             var sale = await t.Pos.Sales.CheckoutAsync(new SaleDraft([new CartLine(t.Coffee, 1, Discount: 1.50m)], [new PaymentDraft(PaymentMethods.Cash, 20)]));
 
-            var ex = await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Sales.VoidAsync(sale.SaleId, "Error"));
+            var ex = await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Sales.VoidAsync(sale.SaleId, "Error"));
             Assert.Contains("Tu rol (cajero) no permite anular ventas", ex.Message);
-            await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Sales.ReturnAsync(sale.SaleId, [new ReturnLine(1, 1)], null));
-            await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Cash.CloseAsync(session, 100, null));
-            await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Audit.GetAsync(1, 10));
-            await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Master.CreateItemAsync(
+            await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Sales.ReturnAsync(sale.SaleId, [new ReturnLine(1, 1)], null));
+            await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Cash.CloseAsync(session, 100, null));
+            await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Audit.GetAsync(1, 10));
+            await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Master.CreateItemAsync(
                 new ItemDraft("X-1", "Nuevo", "unidad", null, null, 1, "PEN")));
             // Más del 10 % de descuento necesita supervisor.
-            var big = await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Sales.CheckoutAsync(
+            var big = await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Sales.CheckoutAsync(
                 new SaleDraft([new CartLine(t.Coffee, 1, Discount: 5m)], [new PaymentDraft(PaymentMethods.Cash, 20)])));
             Assert.Contains("descuentos mayores al 10 %", big.Message);
 

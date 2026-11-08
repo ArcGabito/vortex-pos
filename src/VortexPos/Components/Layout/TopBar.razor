@@ -25,6 +25,13 @@
         <span class="label">@ChipText</span>
     </button>
 
+    @if (Session.Desk.HasPins)
+    {
+        <button class="btn btn-sm operator-chip" @onclick="Session.Lock" title="@(T("topbar.bloquear_o_cambiar_cajero"))">
+            <Icon Name="lock" Size="15" /><span class="label">@Session.UserName</span>
+        </button>
+    }
+
     <a class="btn btn-dark new-sale" href="caja"><Icon Name="cart" Size="17" /><span class="label">@T("nav.vender")</span></a>
 
     <div class="menu-anchor">

@@ -31,6 +31,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<Toasts>();
         builder.Services.AddSingleton<FileExporter>();
         builder.Services.AddSingleton<TicketPrinter>();
+        builder.Services.AddSingleton<AuthorizationPrompt>();
 
 #if WINDOWS
         // Botones de la barra de título (minimizar, maximizar, cerrar) en blanco sobre la barra oscura de

@@ -31,3 +31,6 @@ packages/vortex-sdk/*
 # Usuario de Rider y otros IDEs
 .idea/
 *.user
+
+# Temporales de MSBuild al resolver el SDK
+*.SdkResolver.*.proj.Backup.tmp

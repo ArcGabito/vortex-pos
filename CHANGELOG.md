@@ -8,6 +8,11 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **PIN de caja (fase 2b):** cambio rápido de cajero con su PIN sin cerrar la sesión, bloqueo de la caja (manual o tras
+  unos minutos sin uso) y autorización del supervisor con su PIN cuando el rol del cajero no permite la acción (anular,
+  devolver, descuentos altos, retiros…); la auditoría registra quién autorizó. Los verificadores del hub se guardan en el
+  almacenamiento seguro del equipo y funcionan sin conexión; tras 5 PIN equivocados se espera un minuto. "Mi PIN" en
+  Configuración.
 - **Caja completa (fase 2a):** ingresos y retiros de efectivo con motivo; cierre contando billetes y monedas (o por
   total) y cierre ciego; reportes X (parcial) y Z (cierre) con ventas, impuestos, descuentos, anulaciones,
   devoluciones, cobros por medio, movimientos de efectivo y ventas por cajero. Supervisores y administradores.

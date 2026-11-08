@@ -42,10 +42,10 @@ public sealed class CashRegisterTests : IAsyncLifetime
     public async Task No_se_retira_mas_efectivo_del_que_hay_ni_sin_motivo()
     {
         await _t.OpenCashAsync(100);
-        var ex = await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Cash.AddMovementAsync(CashMovementKinds.Out, 150, "Depósito"));
+        var ex = await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Cash.AddMovementAsync(CashMovementKinds.Out, 150, "Depósito"));
         Assert.Contains("No hay tanto efectivo", ex.Message);
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Cash.AddMovementAsync(CashMovementKinds.In, 10, " "));
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Cash.AddMovementAsync(CashMovementKinds.In, 0, "Cambio"));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Cash.AddMovementAsync(CashMovementKinds.In, 10, " "));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Cash.AddMovementAsync(CashMovementKinds.In, 0, "Cambio"));
     }
 
     [Fact]
@@ -53,8 +53,8 @@ public sealed class CashRegisterTests : IAsyncLifetime
     {
         var session = await _t.OpenCashAsync(100);
         _t.Context.Role = PosPermissions.Cashier;
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Cash.AddMovementAsync(CashMovementKinds.Out, 10, "Retiro"));
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Cash.GetReportAsync(session));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Cash.AddMovementAsync(CashMovementKinds.Out, 10, "Retiro"));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Cash.GetReportAsync(session));
     }
 
     // ---------- Cierre por denominación y reportes ----------
@@ -123,7 +123,7 @@ public sealed class CashRegisterTests : IAsyncLifetime
         Assert.Equal(_t.Customer, resumed.CustomerId);
         Assert.Equal([2m, 3m], resumed.Lines.Select(l => l.Quantity));
         Assert.Empty(await _t.Pos.Sales.GetHeldAsync());
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Sales.ResumeHeldAsync(id));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Sales.ResumeHeldAsync(id));
         Assert.Empty(await _t.OutboxAsync());   // es de esta caja: no se publica
     }
 
@@ -161,9 +161,9 @@ public sealed class CashRegisterTests : IAsyncLifetime
     public async Task Solo_un_supervisor_cambia_la_configuracion_de_la_tienda()
     {
         _t.Context.Role = PosPermissions.Cashier;
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Stores.SaveAsync(_t.Store, StoreSettings.Default));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Stores.SaveAsync(_t.Store, StoreSettings.Default));
         _t.Context.Role = PosPermissions.Supervisor;
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Stores.SaveAsync(_t.Store, StoreSettings.Default with { PaperColumns = 60 }));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Stores.SaveAsync(_t.Store, StoreSettings.Default with { PaperColumns = 60 }));
     }
 
     // ---------- Tiendas por usuario ----------
@@ -177,7 +177,7 @@ public sealed class CashRegisterTests : IAsyncLifetime
         await _t.Pos.Cash.CloseAsync(cash.Id, 118.50m, null);
 
         _t.Context.SiteIds = [_t.Central];
-        var ex = await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Cash.OpenAsync(0, _t.Store));
+        var ex = await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Cash.OpenAsync(0, _t.Store));
         Assert.Contains("No tienes asignada", ex.Message);
         Assert.Empty((await _t.Pos.Sales.GetSalesAsync(new SaleQuery())).Items);
         Assert.Equal(0, (await _t.Pos.Sales.GetDashboardAsync()).TicketsToday);

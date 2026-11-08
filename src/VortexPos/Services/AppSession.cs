@@ -4,6 +4,7 @@ using VortexApi.Client.Sessions;
 using VortexApi.Client.Sync;
 using VortexPos.Core;
 using VortexPos.Core.Domain;
+using VortexPos.Core.Services;
 using VortexPos.Core.Sync;
 
 using static VortexPos.Services.Txt;
@@ -68,13 +69,20 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
 
     // ---------- IPosContext ----------
 
-    /// <summary>Rol efectivo en el POS: el que asignó el OrgAdmin en el hub, o <c>cajero</c> si no tiene.</summary>
-    public string Role => PosPermissions.Matrix.EffectiveRole(Session?.Access.Role, Session?.User.Role);
+    /// <summary>
+    /// Rol efectivo en el POS: el del supervisor que autoriza la acción en curso, el del cajero que entró con su PIN o el
+    /// que asignó el OrgAdmin en el hub al usuario de la sesión (<c>cajero</c> si no tiene).
+    /// </summary>
+    public string Role => _authorizer?.Role ?? _operator?.Role ?? PosPermissions.Matrix.EffectiveRole(Session?.Access.Role, Session?.User.Role);
 
-    public bool Can(string permission) => PosPermissions.Matrix.Can(Session?.Access.Role, Session?.User.Role, permission);
+    public bool Can(string permission) =>
+        _authorizer is { } a ? PosPermissions.Matrix.Can(a.Role, "User", permission)
+        : _operator is { } o ? PosPermissions.Matrix.Can(o.Role, "User", permission)
+        : PosPermissions.Matrix.Can(Session?.Access.Role, Session?.User.Role, permission);
 
-    public Guid? UserId => Session?.User.Id;
-    public string UserName => Session?.User.FullName ?? "";
+    public Guid? UserId => _operator?.UserId ?? Session?.User.Id;
+    public string UserName => _operator?.Name ?? Session?.User.FullName ?? "";
+    public string? AuthorizedBy => _authorizer?.Name;
     public string DeviceTag => DeviceIdentity.Tag(_deviceId);
 
     /// <summary>Tiendas asignadas en el hub (<c>Access.SiteIds</c>). Los administradores de la organización ven todas.</summary>
@@ -83,6 +91,125 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
 
     public Guid? DefaultSiteId =>
         Session is { } s && Preferences.Default.Get<string?>(DefaultSiteKey(s), null) is { } id && Guid.TryParse(id, out var g) ? g : null;
+
+    // ---------- Operador de la caja (PIN) ----------
+
+    private PosOperator? _operator;
+    private PosOperator? _authorizer;
+    private DateTimeOffset _lastActivity = DateTimeOffset.UtcNow;
+    private const string LockMinutesKey = "vortex.lock.minutes";
+
+    /// <summary>Verificadores de PIN de los miembros del POS (del hub; sin conexión, los últimos guardados en el equipo).</summary>
+    public OperatorDesk Desk { get; private set; } = new([]);
+
+    /// <summary>Cajero que entró con su PIN sin cerrar la sesión del hub (null: el usuario de la sesión).</summary>
+    public PosOperator? Operator => _operator;
+
+    public bool IsLocked { get; private set; }
+
+    /// <summary>Minutos sin actividad para bloquear la caja (0: no se bloquea sola). Es de este equipo.</summary>
+    public int LockMinutes
+    {
+        get => Preferences.Default.Get(LockMinutesKey, 0);
+        set => Preferences.Default.Set(LockMinutesKey, Math.Clamp(value, 0, 240));
+    }
+
+    /// <summary>Cambia el cajero de la caja (o desbloquea) con un PIN. Si es el del usuario de la sesión, vuelve a él.</summary>
+    public void SwitchOperator(string pin)
+    {
+        var who = Desk.Identify(pin);
+        _operator = who.UserId == Session?.User.Id ? null : who;
+        IsLocked = false;
+        _lastActivity = DateTimeOffset.UtcNow;
+        Changed?.Invoke();
+    }
+
+    public void Lock()
+    {
+        if (!Desk.HasPins)
+            return;
+        IsLocked = true;
+        Changed?.Invoke();
+    }
+
+    /// <summary>Lo llama la interfaz en cada interacción, para el bloqueo por inactividad.</summary>
+    public void Touch() => _lastActivity = DateTimeOffset.UtcNow;
+
+    private void CheckIdleLock()
+    {
+        if (!IsLocked && LockMinutes > 0 && Desk.HasPins && DateTimeOffset.UtcNow - _lastActivity > TimeSpan.FromMinutes(LockMinutes))
+            Lock();
+    }
+
+    /// <summary>
+    /// Ejecuta una acción con los permisos de un supervisor que la autorizó con su PIN; la auditoría registra quién
+    /// autorizó. Solo dura lo que dura la acción.
+    /// </summary>
+    public async Task RunAuthorizedAsync(PosOperator supervisor, Func<Task> action)
+    {
+        _authorizer = supervisor;
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _authorizer = null;
+        }
+    }
+
+    /// <summary>Fija (o quita, con null) el PIN del usuario de la sesión en el hub. Necesita conexión.</summary>
+    public async Task<string?> SetMyPinAsync(string currentPassword, string? pin)
+    {
+        if (_sessions is not { } sessions || _client is not { } client)
+            return T("session.sin_sesion");
+        try
+        {
+            await sessions.WithAccessTokenAsync(async token =>
+            {
+                await client.SetPinAsync(token, currentPassword, string.IsNullOrWhiteSpace(pin) ? null : pin.Trim());
+                return 0;
+            });
+            await LoadPinsAsync(fromHub: true);
+            return null;
+        }
+        catch (VortexApiException ex)
+        {
+            return ex.Message;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return T("session.necesitas_conexion_para_el_pin");
+        }
+    }
+
+    /// <summary>
+    /// Trae los verificadores del hub y los guarda en almacenamiento seguro (nunca en la base local); sin conexión usa los
+    /// últimos guardados. Un PIN es corto: un verificador expuesto se podría adivinar probando.
+    /// </summary>
+    private async Task LoadPinsAsync(bool fromHub)
+    {
+        if (Session is not { } s)
+            return;
+        var key = $"vortex.pins.{s.Access.OrganizationId:N}";
+        IReadOnlyList<VortexPinVerifier>? verifiers = null;
+        if (fromHub && _sessions is { } sessions && _client is { } client)
+        {
+            try
+            {
+                verifiers = await sessions.WithAccessTokenAsync(token => client.GetPinVerifiersAsync(token));
+                await SecureStorage.Default.SetAsync(key, System.Text.Json.JsonSerializer.Serialize(verifiers, VortexJson.Options));
+            }
+            catch (Exception ex) when (ex is VortexApiException or HttpRequestException or TaskCanceledException)
+            {
+                logger.LogInformation(ex, "Sin verificadores de PIN nuevos");
+            }
+        }
+        if (verifiers is null && await SecureStorage.Default.GetAsync(key) is { Length: > 0 } json)
+            verifiers = System.Text.Json.JsonSerializer.Deserialize<List<VortexPinVerifier>>(json, VortexJson.Options);
+        if (verifiers is not null && (Desk.Verifiers.Count != verifiers.Count || !Desk.Verifiers.SequenceEqual(verifiers)))
+            Desk = new OperatorDesk(verifiers);
+    }
 
     public void SetDefaultSite(Guid? siteId)
     {
@@ -164,6 +291,8 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
     public async Task SignOutAsync(string? reason = null)
     {
         await StopAsync();
+        _operator = null;
+        IsLocked = false;
         if (_sessions is not null)
             await _sessions.SignOutAsync();
         Session = null;
@@ -198,8 +327,20 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
         _loops = new CancellationTokenSource();
         _wake = new SemaphoreSlim(0);
         var ct = _loops.Token;
+        _operator = null;
+        await LoadPinsAsync(fromHub: false);
+        _lastActivity = DateTimeOffset.UtcNow;
         _ = Task.Run(() => HeartbeatLoopAsync(ct), ct);
+        _ = Task.Run(() => IdleLoopAsync(ct), ct);
         _ = Task.Run(() => SyncLoopAsync(ct), ct);
+    }
+
+    /// <summary>Revisa cada 20 segundos si la caja lleva el tiempo configurado sin actividad, para bloquearla.</summary>
+    private async Task IdleLoopAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20));
+        while (await WaitAsync(timer, ct))
+            CheckIdleLock();
     }
 
     private async Task StopAsync()
@@ -233,10 +374,13 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
             Session = await _sessions.GetSessionAsync(ct) ?? Session;
             OfflineValidUntil = heartbeat.OfflineTokenExpiresAt;
             SetConnection(ConnectionState.Online);
+            await LoadPinsAsync(fromHub: true);
+            CheckIdleLock();
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
         {
             await GoOfflineAsync(ct);
+            CheckIdleLock();
         }
         catch (VortexApiException ex) when (ex.IsAccessDenied || ex.StatusCode == 401)
         {

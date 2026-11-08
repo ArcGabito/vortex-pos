@@ -146,6 +146,44 @@
             <div class="card">
                 <div class="card-head">
                     <div>
+                        <h3>@T("settings.mi_pin")</h3>
+                        <div class="sub">@T("settings.mi_pin_explica")</div>
+                    </div>
+                </div>
+                <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+                    <div class="form-row">
+                        <div class="field">
+                            <label>@T("settings.contrasena_actual")</label>
+                            <input class="control" type="password" autocomplete="current-password" @bind="_pinPassword" />
+                        </div>
+                        <div class="field">
+                            <label>@T("settings.pin_nuevo")</label>
+                            <input class="control" type="password" inputmode="numeric" maxlength="8" autocomplete="off" @bind="_pin" />
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                        <button class="btn btn-dark btn-sm" disabled="@_busyPin" @onclick="() => SavePinAsync(_pin)">@T("settings.guardar_pin")</button>
+                        <button class="btn btn-sm" disabled="@_busyPin" @onclick="() => SavePinAsync(null)">@T("settings.quitar_pin")</button>
+                    </div>
+                    <div class="field" style="max-width:260px">
+                        <label>@T("settings.bloquear_la_caja_tras")</label>
+                        <select class="select" value="@Session.LockMinutes" @onchange="e => Session.LockMinutes = int.TryParse(e.Value?.ToString(), out var m) ? m : 0">
+                            @foreach (var m in new[] { 0, 2, 5, 10, 15, 30 })
+                            {
+                                <option value="@m">@(m == 0 ? T("settings.nunca") : T("settings.minutos_sin_uso", m))</option>
+                            }
+                        </select>
+                    </div>
+                    @if (!Session.Desk.HasPins)
+                    {
+                        <span class="muted" style="font-size:12.5px">@T("settings.sin_pines_explica")</span>
+                    }
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-head">
+                    <div>
                         <h3>@T("settings.impresora_de_tickets")</h3>
                         <div class="sub">@T("settings.impresora_explica")</div>
                     </div>
@@ -261,6 +299,23 @@
 
     private IReadOnlyList<VortexFailedEntry> _failed = [];
     private IReadOnlyList<SiteRow> _sites = [];
+    private string? _pinPassword, _pin;
+    private bool _busyPin;
+
+    private async Task SavePinAsync(string? pin)
+    {
+        _busyPin = true;
+        var error = await Session.SetMyPinAsync(_pinPassword ?? "", pin);
+        _busyPin = false;
+        if (error is not null)
+        {
+            Toasts.Error(error);
+            return;
+        }
+        (_pinPassword, _pin) = (null, null);
+        Toasts.Success(pin is null ? T("settings.pin_quitado") : T("settings.pin_guardado"));
+    }
+
     private string? _printerHost;
     private int _printerPort = TicketPrinter.DefaultPort;
     private Guid? _storeId;

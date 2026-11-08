@@ -1,0 +1,39 @@
+@implements IDisposable
+@inject AppSession Session
+@inject AuthorizationPrompt Prompt
+@* PIN del supervisor para una acción que el rol del cajero no permite. *@
+@if (Prompt.Permission is { } permission)
+{
+    <Modal Title="@(T("authorize.autorizacion_del_supervisor"))" Subtitle="@(T("authorize.para", PosPermissions.Describe(permission)))" Size="sm"
+           OnClose="() => Prompt.Complete(null)">
+        <ChildContent>
+            <PinPad Error="@_error" OnSubmit="pin => Authorize(pin, permission)" />
+        </ChildContent>
+    </Modal>
+}
+
+@code {
+    private string? _error;
+
+    protected override void OnInitialized() => Prompt.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        _error = null;
+        StateHasChanged();
+    });
+
+    private void Authorize(string pin, string permission)
+    {
+        try
+        {
+            Prompt.Complete(Session.Desk.Authorize(pin, permission));
+        }
+        catch (PosValidationException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    public void Dispose() => Prompt.Changed -= OnChanged;
+}

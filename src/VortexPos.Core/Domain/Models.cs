@@ -20,10 +20,22 @@ public interface IPosContext
 
     /// <summary>Si el usuario puede hacer la acción (<see cref="PosPermissions"/>).</summary>
     bool Can(string permission);
+
+    /// <summary>Supervisor que autorizó con su PIN la acción en curso (null si no hubo autorización).</summary>
+    string? AuthorizedBy => null;
 }
 
 /// <summary>Dato inválido o regla de negocio incumplida: se muestra tal cual al usuario.</summary>
-public sealed class PosValidationException(string message) : Exception(message);
+public class PosValidationException(string message) : Exception(message);
+
+/// <summary>El rol del usuario no permite la acción. La app puede pedir el PIN de un supervisor y reintentarla autorizada.</summary>
+public sealed class PosPermissionException(string message, string permission) : PosValidationException(message)
+{
+    public string Permission { get; } = permission;
+}
+
+/// <summary>Quien opera la caja: el usuario de la sesión o el que entró con su PIN.</summary>
+public sealed record PosOperator(Guid UserId, string Name, string Role);
 
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Total, int Page, int PageSize)
 {

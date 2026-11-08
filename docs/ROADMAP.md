@@ -102,8 +102,8 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 |---|---|---|---|
 | POS-70 | Roles `cajero`, `supervisor`, `administrador` validados en Core | Hecho | 1 |
 | POS-71 | Auditoría de anulaciones, devoluciones, descuentos y caja | Hecho | 1 |
-| POS-72 | PIN rápido para cambiar de cajero y bloqueo de pantalla | Pendiente | 2 |
-| POS-73 | Autorización del supervisor en el momento (su PIN en la caja del cajero) | Pendiente | 2 |
+| POS-72 | PIN rápido para cambiar de cajero y bloqueo de pantalla | Hecho | 2 |
+| POS-73 | Autorización del supervisor en el momento (su PIN en la caja del cajero) | Hecho | 2 |
 | POS-74 | Sedes por usuario: cada cajero vende solo en sus tiendas | Hecho | 2 |
 
 ### Operación sin conexión y varios equipos
@@ -193,6 +193,11 @@ tiendas por usuario. Pruebas en `CashRegisterTests`. **Pendiente (2b):** PIN rá
 autorización del supervisor (POS-72, POS-73), que necesitan el PIN de usuario en el hub; impresión por USB y
 Bluetooth (POS-61).
 
+**Estado (2026-11), 2b:** hecha. PIN de caja en el hub (vortex-api#31): cambio rápido de cajero sin cerrar la sesión,
+bloqueo manual o por inactividad y autorización del supervisor con su PIN cuando el rol no alcanza (queda en la auditoría
+quién autorizó). Los verificadores se guardan en el almacenamiento seguro del equipo y se validan sin conexión; tras 5
+PIN equivocados se espera un minuto. Pruebas en `OperatorTests`. Pendiente de la fase: USB y Bluetooth (POS-61).
+
 ## Fase 3: catálogo y precios · L
 
 **Objetivo:** vender el catálogo de una cadena real, con sus precios y promociones.
@@ -265,7 +270,7 @@ Se activan con los `features` `restaurante` y `autoservicio`.
 
 | Propuesta | Tipo | Fase |
 |---|---|---|
-| PIN de usuario para cambio rápido | Campo del miembro (hash) | 2 |
+| PIN de usuario para cambio rápido (hecho, vortex-api#31) | Campo del usuario (hash) | 2 |
 | Variantes y atributos del artículo | Campos de `item` | 3 |
 | Listas de precios | Dato maestro compartido con ERP y CRM | 3 |
 | `presentationId`, `variantId`, `modifiers`, `promotionId` en `sale.completed` | Campos aditivos | 3 |
