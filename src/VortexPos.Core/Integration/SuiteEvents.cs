@@ -17,6 +17,7 @@ public static class SuiteEvents
     // Consume el POS
     public const string StockAdjusted = "stock.adjusted";
     public const string InvoiceIssued = "invoice.issued";
+    public const string InvoiceVoided = "invoice.voided";
 }
 
 /// <summary>
@@ -49,6 +50,9 @@ public sealed record StockAdjusted(Guid SiteId, Guid ItemId, decimal QuantityDel
 
 /// <summary><c>invoice.issued</c> del ERP: si viene de una venta de caja, trae <c>saleId</c>.</summary>
 public sealed record InvoiceIssued(Guid InvoiceId, string? Number, Guid? CustomerId, Guid? SaleId, decimal Total, string? CurrencyCode);
+
+/// <summary><c>invoice.voided</c> del ERP: si el comprobante era de una venta de caja, trae <c>saleId</c>.</summary>
+public sealed record InvoiceVoided(Guid InvoiceId, string? Number, string? Reason, Guid? SaleId);
 
 /// <summary>
 /// <c>pos.record.upserted</c>: replicación interna del POS entre las cajas de una organización (por ahora, la

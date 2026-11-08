@@ -69,6 +69,7 @@ aplicado a la venta (sin el vuelto).
 |---|---|
 | `stock.adjusted` (WMS) | Guarda el saldo absoluto (`quantityOnHand`) por tienda y artículo; se muestra al vender y en el catálogo |
 | `invoice.issued` (ERP) | Si trae `saleId`, anota el número de comprobante en la venta |
+| `invoice.voided` (ERP) | Si trae `saleId`, quita ese número de la venta: queda sin comprobante y el ERP puede emitirle otro |
 | `sale.completed`, `sale.voided`, `sale.returned` (otra caja POS) | Ver abajo |
 | `pos.record.upserted` (otra caja POS) | Guarda la configuración de la tienda si es más reciente que la que tiene (`updatedAt`; a igual hora, desempata `updatedBy`) |
 

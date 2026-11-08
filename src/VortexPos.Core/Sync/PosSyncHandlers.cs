@@ -13,7 +13,8 @@ namespace VortexPos.Core.Sync;
 /// <list type="bullet">
 /// <item>Actualiza la copia de datos maestros (artículos, tiendas, clientes, empresa).</item>
 /// <item>Muestra el stock que publica el WMS (<c>stock.adjusted</c>, saldo absoluto por sede).</item>
-/// <item>Anota el comprobante que emite el ERP para una venta (<c>invoice.issued</c> con <c>saleId</c>).</item>
+/// <item>Anota el comprobante que emite el ERP para una venta (<c>invoice.issued</c> con <c>saleId</c>) y lo quita si se anula
+/// (<c>invoice.voided</c>).</item>
 /// <item>Replica las ventas, anulaciones y devoluciones de <b>las otras cajas</b> de la organización, que llegan como
 /// sus propios eventos. Requiere <see cref="VortexSyncOptions.IncludeOwnEvents"/>.</item>
 /// </list>
@@ -37,7 +38,8 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
         .OnEvent(SuiteEvents.SaleReturned, HandleSaleReturnedAsync)
         .OnEvent(SuiteEvents.PosRecordUpserted, HandlePosRecordAsync)
         .OnEvent(SuiteEvents.StockAdjusted, HandleStockAdjustedAsync)
-        .OnEvent(SuiteEvents.InvoiceIssued, HandleInvoiceIssuedAsync);
+        .OnEvent(SuiteEvents.InvoiceIssued, HandleInvoiceIssuedAsync)
+        .OnEvent(SuiteEvents.InvoiceVoided, HandleInvoiceVoidedAsync);
 
     // ---------- Otras cajas del POS ----------
 
@@ -107,6 +109,16 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
             if (invoice.SaleId is null)
                 return "comprobante sin venta de caja";
             await SalesService.ApplyInvoiceAsync(c, tx, invoice);
+            return null;
+        }, ct);
+
+    /// <summary>Comprobante anulado en el ERP: la venta de caja vuelve a quedar sin comprobante (el ERP puede emitirle otro).</summary>
+    public Task HandleInvoiceVoidedAsync(VortexEvent e, CancellationToken ct = default) =>
+        ApplyOnceAsync<InvoiceVoided>(e, async (voided, c, tx) =>
+        {
+            if (voided.SaleId is null)
+                return "comprobante sin venta de caja";
+            await SalesService.ApplyInvoiceVoidedAsync(c, tx, voided);
             return null;
         }, ct);
 
