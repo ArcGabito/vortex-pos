@@ -17,6 +17,7 @@ public abstract class PosPage : ComponentBase, IDisposable
     [Inject] protected Toasts Toasts { get; set; } = null!;
     [Inject] protected NavigationManager Nav { get; set; } = null!;
     [Inject] protected TicketPrinter Printer { get; set; } = null!;
+    [Inject] protected AuthorizationPrompt Prompt { get; set; } = null!;
 
     protected PosWorkspace Pos => Session.Workspace!;
     protected bool Loading { get; private set; } = true;
@@ -63,6 +64,24 @@ public abstract class PosPage : ComponentBase, IDisposable
         try
         {
             await action();
+        }
+        catch (PosPermissionException ex) when (Session.Desk.HasPins)
+        {
+            // El rol no alcanza: un supervisor puede autorizarlo con su PIN y la acción se reintenta con su permiso.
+            if (await Prompt.RequestAsync(ex.Permission) is not { } supervisor)
+                return ex.Message;
+            try
+            {
+                await Session.RunAuthorizedAsync(supervisor, action);
+            }
+            catch (PosValidationException again)
+            {
+                return again.Message;
+            }
+            catch (Exception again)
+            {
+                return T("page.no_se_pudo_completar_la", again.Message);
+            }
         }
         catch (PosValidationException ex)
         {

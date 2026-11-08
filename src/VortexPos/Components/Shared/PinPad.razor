@@ -1,0 +1,62 @@
+@* Teclado de PIN: dígitos en pantalla (táctil) y teclado físico. Llama a OnSubmit con el PIN al confirmar. *@
+<div class="pinpad" @onkeydown="KeyAsync" tabindex="0" @ref="_root">
+    <div class="pinpad-dots" aria-label="@(T("pinpad.pin"))">
+        @for (var i = 0; i < Math.Max(4, _pin.Length); i++)
+        {
+            <span class="@(i < _pin.Length ? "on" : "")"></span>
+        }
+    </div>
+    @if (Error is not null)
+    {
+        <div class="alert error" style="justify-content:center"><span>@Error</span></div>
+    }
+    <div class="pinpad-keys">
+        @foreach (var d in "123456789")
+        {
+            var digit = d;
+            <button class="btn" @onclick="() => Add(digit)">@digit</button>
+        }
+        <button class="btn btn-ghost" @onclick="Clear" aria-label="@(T("pinpad.borrar"))"><Icon Name="x" Size="18" /></button>
+        <button class="btn" @onclick="() => Add('0')">0</button>
+        <button class="btn btn-dark" disabled="@(_pin.Length < 4)" @onclick="SubmitAsync" aria-label="@(T("pinpad.confirmar"))"><Icon Name="check" Size="18" /></button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback<string> OnSubmit { get; set; }
+
+    private string _pin = "";
+    private ElementReference _root;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await _root.FocusAsync();
+    }
+
+    private void Add(char digit)
+    {
+        if (_pin.Length < 8)
+            _pin += digit;
+    }
+
+    private void Clear() => _pin = "";
+
+    private async Task KeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key.Length == 1 && char.IsAsciiDigit(e.Key[0]))
+            Add(e.Key[0]);
+        else if (e.Key == "Backspace" && _pin.Length > 0)
+            _pin = _pin[..^1];
+        else if (e.Key == "Enter" && _pin.Length >= 4)
+            await SubmitAsync();
+    }
+
+    private async Task SubmitAsync()
+    {
+        var pin = _pin;
+        _pin = "";
+        await OnSubmit.InvokeAsync(pin);
+    }
+}

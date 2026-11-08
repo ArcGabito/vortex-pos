@@ -59,14 +59,15 @@ public abstract class PosService(PosDatabase db, IPosContext context, TimeProvid
     protected void RequirePermission(string permission)
     {
         if (!Context.Can(permission))
-            throw new PosValidationException(T("error.permiso_supervisor", Context.Role, PosPermissions.Describe(permission)));
+            throw new PosPermissionException(T("error.permiso_supervisor", Context.Role, PosPermissions.Describe(permission)), permission);
     }
 
     /// <summary>Deja la acción en la bitácora, en la misma transacción que la acción.</summary>
     protected Task AuditAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, string action, string entity, Guid? entityId,
         string? reference, string? detail) =>
         Audit.WriteAsync(c, tx, new AuditEntry(Guid.NewGuid(), now, Context.UserId, Context.UserName, Context.DeviceTag, action, entity,
-            entityId?.ToString(), reference, detail));
+            entityId?.ToString(), reference,
+            Context.AuthorizedBy is { } by ? $"{detail}{(detail is null ? "" : " · ")}{T("info.autorizado_por", by)}" : detail));
 
     /// <summary>Régimen de impuesto de la empresa (país y tasa general del hub). Sin datos de la empresa, Perú.</summary>
     internal static async Task<TaxRegime> TaxRegimeAsync(SqliteConnection c, SqliteTransaction? tx)

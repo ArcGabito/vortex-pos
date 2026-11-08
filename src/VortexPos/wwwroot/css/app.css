@@ -1337,3 +1337,23 @@ table.data .strong { font-weight: 700; color: var(--ink); }
     line-height: 1.45;
     white-space: pre;
 }
+
+/* ---------- PIN de caja: teclado, bloqueo y operador ---------- */
+
+.pinpad { display: flex; flex-direction: column; gap: 14px; align-items: center; outline: none; }
+.pinpad-dots { display: flex; gap: 10px; min-height: 16px; }
+.pinpad-dots span { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--border-strong); }
+.pinpad-dots span.on { background: var(--ink); border-color: var(--ink); }
+.pinpad-keys { display: grid; grid-template-columns: repeat(3, 72px); gap: 10px; }
+.pinpad-keys .btn { height: 56px; font-size: 20px; }
+
+.lockscreen { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px; background: rgba(22, 21, 29, .55); backdrop-filter: blur(6px); }
+.lockscreen-card { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 28px 32px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-pop); }
+.lockscreen-card h3 { font-size: 18px; font-weight: 600; }
+
+.operator-chip { height: 34px; max-width: 200px; }
+.operator-chip .label { overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 960px) {
+    .operator-chip .label { display: none; }
+}

@@ -1,0 +1,28 @@
+@inject AppSession Session
+@* Caja bloqueada: entra cualquier miembro con su PIN (cambia el cajero) o se cierra la sesión. *@
+<div class="lockscreen">
+    <div class="lockscreen-card">
+        <Logo Size="34" />
+        <h3>@T("lockscreen.caja_bloqueada")</h3>
+        <p class="muted">@T("lockscreen.ingresa_tu_pin")</p>
+        <PinPad Error="@_error" OnSubmit="Unlock" />
+        <button class="link-btn" @onclick="() => Session.SignOutAsync()">@T("lockscreen.cerrar_sesion")</button>
+    </div>
+</div>
+
+@code {
+    private string? _error;
+
+    private void Unlock(string pin)
+    {
+        try
+        {
+            Session.SwitchOperator(pin);
+            _error = null;
+        }
+        catch (PosValidationException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

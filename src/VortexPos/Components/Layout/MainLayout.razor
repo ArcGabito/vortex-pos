@@ -5,7 +5,7 @@
 
 @if (Session.IsSignedIn)
 {
-    <div class="app">
+    <div class="app" @onclick="Session.Touch" @onkeydown="Session.Touch">
         <div class="sidebar-backdrop @(_menuOpen ? "open" : "")" @onclick="() => _menuOpen = false"></div>
         <aside class="sidebar @(_menuOpen ? "open" : "")">
             <div class="brand"><Logo /></div>
@@ -60,6 +60,12 @@
         </div>
     </div>
 }
+
+@if (Session.IsSignedIn && Session.IsLocked)
+{
+    <LockScreen />
+}
+<AuthorizeModal />
 
 @code {
     private bool _menuOpen;

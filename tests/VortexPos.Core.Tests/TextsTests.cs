@@ -74,10 +74,10 @@ public sealed partial class TextsTests
             var sale = await t.Pos.Sales.CheckoutAsync(new SaleDraft([new CartLine(t.Coffee, 1)], [new PaymentDraft(PaymentMethods.Cash, 20)]));
             using (CoreText.Use(Languages.English))
             {
-                var ex = await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Sales.VoidAsync(sale.SaleId, "Error"));
+                var ex = await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Sales.VoidAsync(sale.SaleId, "Error"));
                 Assert.Equal("Your role (cajero) doesn't allow voiding sales. Ask a supervisor to do it.", ex.Message);
             }
-            var es = await Assert.ThrowsAsync<PosValidationException>(() => t.Pos.Sales.VoidAsync(sale.SaleId, "Error"));
+            var es = await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Sales.VoidAsync(sale.SaleId, "Error"));
             Assert.StartsWith("Tu rol (cajero) no permite anular ventas", es.Message);
         }
         finally

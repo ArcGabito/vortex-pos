@@ -35,6 +35,11 @@ hasta que vuelve por el feed; si el hub la rechaza aparece en **Configuración �
   Ingresos y retiros de efectivo, reportes X y Z y la configuración de la tienda son de `supervisor` en adelante.
 - Tiendas por usuario: si el OrgAdmin asigna tiendas al usuario en el hub (`Access.SiteIds`), solo abre caja en
   ellas y en Ventas y el panel ve solo sus ventas. Sin tiendas asignadas, o siendo OrgAdmin, todas.
+- PIN de caja (fase 2b): cada usuario fija su PIN en Configuración (se guarda en el hub con `SetPinAsync`). El POS
+  descarga los verificadores de los miembros del POS (`GetPinVerifiersAsync`), los guarda en el almacenamiento seguro
+  del equipo y valida el PIN sin conexión (`VortexPin.Verify`) para cambiar de cajero, desbloquear la caja o que un
+  supervisor autorice una acción que el rol del cajero no permite; la auditoría registra "autorizado por". El rol que
+  vale es el del miembro en el POS (los administradores de la organización entran con su rol de miembro).
 
 ## Datos propios del POS
 

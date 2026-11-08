@@ -15,7 +15,7 @@ public sealed class SalesTests : IAsyncLifetime
     [Fact]
     public async Task Sin_caja_abierta_no_se_vende()
     {
-        var ex = await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Sales.CheckoutAsync(
+        var ex = await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Sales.CheckoutAsync(
             new SaleDraft([new CartLine(_t.Coffee, 1)], [new PaymentDraft(PaymentMethods.Cash, 20)])));
         Assert.Contains("Abre la caja", ex.Message);
     }
@@ -74,7 +74,7 @@ public sealed class SalesTests : IAsyncLifetime
     public async Task Pagos_invalidos_se_rechazan_con_un_mensaje_claro(string method, decimal amount, string message)
     {
         await _t.OpenCashAsync();
-        var ex = await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Sales.CheckoutAsync(
+        var ex = await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Sales.CheckoutAsync(
             new SaleDraft([new CartLine(_t.Coffee, 1)], [new PaymentDraft(method, amount)])));
         Assert.Contains(message, ex.Message);
         Assert.Empty(await _t.OutboxAsync());
@@ -87,7 +87,7 @@ public sealed class SalesTests : IAsyncLifetime
         var receipt = await _t.Pos.Sales.CheckoutAsync(new SaleDraft([new CartLine(_t.Coffee, 1)], [new PaymentDraft(PaymentMethods.Cash, 18.50m)]));
 
         await _t.Pos.Sales.VoidAsync(receipt.SaleId, "Error de digitación");
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Sales.VoidAsync(receipt.SaleId, "Otra vez"));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Sales.VoidAsync(receipt.SaleId, "Otra vez"));
 
         var voided = (await _t.OutboxAsync()).Single(e => e.EventType == SuiteEvents.SaleVoided);
         Assert.Equal(DeterministicId.From("sale_void", receipt.SaleId), voided.Id);
@@ -106,8 +106,8 @@ public sealed class SalesTests : IAsyncLifetime
 
         var number = await _t.Pos.Sales.ReturnAsync(receipt.SaleId, [new ReturnLine(1, 1)], "Producto dañado");
         Assert.Equal("DEV-TEST-000001", number);
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Sales.ReturnAsync(receipt.SaleId, [new ReturnLine(1, 3)], null));
-        await Assert.ThrowsAsync<PosValidationException>(() => _t.Pos.Sales.VoidAsync(receipt.SaleId, "Con devolución"));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Sales.ReturnAsync(receipt.SaleId, [new ReturnLine(1, 3)], null));
+        await Assert.ThrowsAnyAsync<PosValidationException>(() => _t.Pos.Sales.VoidAsync(receipt.SaleId, "Con devolución"));
 
         var returned = (await _t.OutboxAsync()).Single(e => e.EventType == SuiteEvents.SaleReturned).Payload!.Value;
         Assert.Equal(18.50m, returned.GetProperty("total").GetDecimal());
