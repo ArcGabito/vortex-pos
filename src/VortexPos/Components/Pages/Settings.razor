@@ -151,20 +151,28 @@
                     </div>
                 </div>
                 <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
-                    <div class="form-row">
-                        <div class="field">
-                            <label>@T("settings.contrasena_actual")</label>
-                            <input class="control" type="password" autocomplete="current-password" @bind="_pinPassword" />
+                    @if (Session.Operator is { } op)
+                    {
+                        @* El PIN se cambia con la contraseña de quien inició sesión; otro cajero lo hace desde su propia sesión. *@
+                        <span class="muted" style="font-size:12.5px">@T("settings.mi_pin_otro_cajero", op.Name, Session.Session?.User.FullName ?? "")</span>
+                    }
+                    else
+                    {
+                        <div class="form-row">
+                            <div class="field">
+                                <label>@T("settings.contrasena_actual")</label>
+                                <input class="control" type="password" autocomplete="current-password" @bind="_pinPassword" />
+                            </div>
+                            <div class="field">
+                                <label>@T("settings.pin_nuevo")</label>
+                                <input class="control" type="password" inputmode="numeric" maxlength="8" autocomplete="off" @bind="_pin" />
+                            </div>
                         </div>
-                        <div class="field">
-                            <label>@T("settings.pin_nuevo")</label>
-                            <input class="control" type="password" inputmode="numeric" maxlength="8" autocomplete="off" @bind="_pin" />
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            <button class="btn btn-dark btn-sm" disabled="@_busyPin" @onclick="() => SavePinAsync(_pin)">@T("settings.guardar_pin")</button>
+                            <button class="btn btn-sm" disabled="@_busyPin" @onclick="() => SavePinAsync(null)">@T("settings.quitar_pin")</button>
                         </div>
-                    </div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap">
-                        <button class="btn btn-dark btn-sm" disabled="@_busyPin" @onclick="() => SavePinAsync(_pin)">@T("settings.guardar_pin")</button>
-                        <button class="btn btn-sm" disabled="@_busyPin" @onclick="() => SavePinAsync(null)">@T("settings.quitar_pin")</button>
-                    </div>
+                    }
                     <div class="field" style="max-width:260px">
                         <label>@T("settings.bloquear_la_caja_tras")</label>
                         <select class="select" value="@Session.LockMinutes" @onchange="e => Session.LockMinutes = int.TryParse(e.Value?.ToString(), out var m) ? m : 0">

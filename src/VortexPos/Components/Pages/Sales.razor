@@ -96,11 +96,11 @@
                                 <td class="actions-col" @onclick:stopPropagation>
                                     <KebabMenu>
                                         <button @onclick="() => OpenAsync(s)"><Icon Name="receipt" Size="18" />@T("sales.ver_detalle")</button>
-                                        @if (s.CanReturn && Session.Can(PosPermissions.Return))
+                                        @if (s.CanReturn && Session.CanOrApprove(PosPermissions.Return))
                                         {
                                             <button @onclick="() => StartReturnAsync(s)"><Icon Name="undo" Size="18" />@T("sales.registrar_devolucion")</button>
                                         }
-                                        @if (s.CanVoid && Session.Can(PosPermissions.Void))
+                                        @if (s.CanVoid && Session.CanOrApprove(PosPermissions.Void))
                                         {
                                             <button class="danger" @onclick="() => StartVoid(s)"><Icon Name="ban" Size="18" />@T("sales.anular_2")</button>
                                         }
@@ -183,11 +183,11 @@
             </div>
         </ChildContent>
         <Footer>
-            @if (d.CanVoid && Session.Can(PosPermissions.Void))
+            @if (d.CanVoid && Session.CanOrApprove(PosPermissions.Void))
             {
                 <button class="btn btn-danger" @onclick="() => StartVoid(d)"><Icon Name="ban" Size="18" />@T("sales.anular_2")</button>
             }
-            @if (d.CanReturn && Session.Can(PosPermissions.Return))
+            @if (d.CanReturn && Session.CanOrApprove(PosPermissions.Return))
             {
                 <button class="btn" @onclick="() => StartReturnAsync(d)"><Icon Name="undo" Size="18" />@T("sales.devolucion")</button>
             }

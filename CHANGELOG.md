@@ -8,6 +8,10 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Celular (Android):** la app respeta las barras del sistema (estado y gestos) con íconos oscuros; el botón Atrás cierra
+  el diálogo o el menú abiertos y vuelve a la página anterior en vez de cerrar la app; las tablas se ven como tarjetas;
+  los indicadores del panel en 2×2; en Vender, una barra fija con el total lleva a la venta y cobra; la barra superior
+  se compacta. En pantallas táctiles la caja ya no abre el teclado sola.
 - **PIN de caja (fase 2b):** cambio rápido de cajero con su PIN sin cerrar la sesión, bloqueo de la caja (manual o tras
   unos minutos sin uso) y autorización del supervisor con su PIN cuando el rol del cajero no permite la acción (anular,
   devolver, descuentos altos, retiros…); la auditoría registra quién autorizó. Los verificadores del hub se guardan en el
@@ -52,6 +56,15 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   del inicio de sesión se muestra en tonos morados con `filter: hue-rotate`. Los colores de estado no cambian.
 - `sale.completed` lleva la categoría de impuesto de cada línea (`taxCode`). El `taxCode` de los artículos es una
   categoría de la base común (`standard`, `reduced`, `zero`, `exempt`…); `igv`, `exonerado` e `inafecto` siguen valiendo.
+- **Negro de la marca en lo nativo:** la pantalla de inicio de Android, el ícono, la barra de título de Windows y el logo
+  usaban un café oscuro (`#1C120D`) que se veía amarillento; pasan a la tinta de la app (`#16151D`).
+
+### Fixed
+- Los indicadores del panel mostraban "S/ 18.5" y "S/ 0": los montos menores a 10 mil se muestran completos ("S/ 18.50").
+- Anular, devolver, movimientos y reportes de caja quedaban ocultos para el cajero aunque un supervisor podía autorizarlos
+  con su PIN: ahora se ofrecen y, al intentarlos, se pide el PIN.
+- Con otro cajero en la caja, "Mi PIN" cambiaba el PIN de quien inició sesión; ahora solo se ofrece a ese usuario.
+- La línea sobre el total de la venta se veía cortada en dos.
 
 ### Added
 - App **.NET MAUI Blazor Hybrid** (Windows, Android, iOS, macOS) con la arquitectura de Vortex WMS: base SQLite por
