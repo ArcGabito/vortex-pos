@@ -396,6 +396,11 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     internal static Task ApplyInvoiceAsync(SqliteConnection c, SqliteTransaction tx, InvoiceIssued e) =>
         c.ExecAsync("UPDATE sales SET invoice_number = $number WHERE id = $id", tx, ("$id", e.SaleId), ("$number", e.Number));
 
+    /// <summary>Quita el número solo si es el del comprobante anulado (si ya llegó otro, se queda).</summary>
+    internal static Task ApplyInvoiceVoidedAsync(SqliteConnection c, SqliteTransaction tx, InvoiceVoided e) =>
+        c.ExecAsync("UPDATE sales SET invoice_number = NULL WHERE id = $id AND ($number IS NULL OR invoice_number = $number)", tx,
+            ("$id", e.SaleId), ("$number", e.Number));
+
     // ---------- Internos ----------
 
     private const string SelectSales = """

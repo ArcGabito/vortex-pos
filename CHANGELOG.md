@@ -8,6 +8,7 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- La anulación de un comprobante en el ERP (`invoice.voided`) deja la venta de caja sin comprobante.
 - **Celular (Android):** la app respeta las barras del sistema (estado y gestos) con íconos oscuros; el botón Atrás cierra
   el diálogo o el menú abiertos y vuelve a la página anterior en vez de cerrar la app; las tablas se ven como tarjetas;
   los indicadores del panel en 2×2; en Vender, una barra fija con el total lleva a la venta y cobra; la barra superior
@@ -60,6 +61,7 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   usaban un café oscuro (`#1C120D`) que se veía amarillento; pasan a la tinta de la app (`#16151D`).
 
 ### Fixed
+- Celular: los diálogos, el editor de líneas y los indicadores ya no se salen de la pantalla.
 - Los indicadores del panel mostraban "S/ 18.5" y "S/ 0": los montos menores a 10 mil se muestran completos ("S/ 18.50").
 - Anular, devolver, movimientos y reportes de caja quedaban ocultos para el cajero aunque un supervisor podía autorizarlos
   con su PIN: ahora se ofrecen y, al intentarlos, se pide el PIN.

@@ -103,6 +103,24 @@ public sealed class SyncTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Comprobante_anulado_en_el_ERP_deja_la_venta_sin_comprobante()
+    {
+        await _t.OpenCashAsync();
+        var sale = await _t.Pos.Sales.CheckoutAsync(new SaleDraft([new CartLine(_t.Coffee, 1)], [new PaymentDraft(PaymentMethods.Cash, 18.50m)]));
+        await _t.Pos.SyncHandlers.HandleInvoiceIssuedAsync(TestWorkspace.Event(SuiteEvents.InvoiceIssued,
+            new { invoiceId = Guid.NewGuid(), number = "B001-000045", saleId = sale.SaleId, total = 18.50m, currencyCode = "PEN" }, "ERP"));
+
+        // La anulación de otro comprobante no toca el número vigente.
+        await _t.Pos.SyncHandlers.HandleInvoiceVoidedAsync(TestWorkspace.Event(SuiteEvents.InvoiceVoided,
+            new { invoiceId = Guid.NewGuid(), number = "B001-000044", reason = "Duplicado", saleId = sale.SaleId }, "ERP"));
+        Assert.Equal("B001-000045", (await _t.Pos.Sales.GetSaleAsync(sale.SaleId))!.InvoiceNumber);
+
+        await _t.Pos.SyncHandlers.HandleInvoiceVoidedAsync(TestWorkspace.Event(SuiteEvents.InvoiceVoided,
+            new { invoiceId = Guid.NewGuid(), number = "B001-000045", reason = "DNI equivocado", saleId = sale.SaleId }, "ERP"));
+        Assert.Null((await _t.Pos.Sales.GetSaleAsync(sale.SaleId))!.InvoiceNumber);
+    }
+
+    [Fact]
     public async Task Eventos_de_otra_version_o_de_otro_sistema_se_ignoran_sin_trabar_el_feed()
     {
         await _t.Pos.SyncHandlers.HandleSaleCompletedAsync(TestWorkspace.Event(SuiteEvents.SaleCompleted,
