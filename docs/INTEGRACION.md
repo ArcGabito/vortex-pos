@@ -61,7 +61,9 @@ de cada tienda (texto del ticket, ancho del papel, cierre ciego, cajón) la comp
 
 `sale.completed` lleva el formato v1 (`saleId`, `number`, `siteId`, `customerId`, `subtotal`, `tax`, `total`, `lines`,
 `payments`) y agrega `discount`, `createdBy` y, por línea, `name` y `taxable`. En `payments`, el efectivo va por lo
-aplicado a la venta (sin el vuelto).
+aplicado a la venta (sin el vuelto). Desde la fase 3a cada línea puede traer `presentation` (código de la presentación
+del artículo con que se vendió; `quantity` sigue en la unidad del artículo: una caja de 12 son 12) y `listPrice` (el
+precio de lista cuando la caja cobró otro con permiso). Ambos son opcionales y aditivos.
 
 ### Qué consume el POS
 

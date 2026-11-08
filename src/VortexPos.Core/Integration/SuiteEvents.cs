@@ -32,7 +32,7 @@ public sealed record SaleCompleted(
 
 public sealed record SaleLine(
     Guid ItemId, string? Sku, decimal Quantity, decimal UnitPrice, decimal Discount, decimal Total, string? Name = null,
-    bool Taxable = true, string? TaxCode = null);
+    bool Taxable = true, string? TaxCode = null, string? Presentation = null, decimal? ListPrice = null);
 
 public sealed record SalePayment(string Method, decimal Amount);
 

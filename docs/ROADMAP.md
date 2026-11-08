@@ -24,10 +24,10 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | POS-01 | Búsqueda, lector de códigos de barras y categorías | Hecho | — |
 | POS-02 | Descuento por línea y por ticket, con límite por rol | Parcial: por línea | 3 |
 | POS-03 | Tickets en espera y varias ventas abiertas a la vez | Hecho | 2 |
-| POS-04 | Venta por presentación (caja × 12) con los códigos del hub | Pendiente | 3 |
+| POS-04 | Venta por presentación (caja × 12) con los códigos del hub | Hecho | 3a |
 | POS-05 | Variantes (talla, color) y modificadores (extras, sin cebolla) | Pendiente | 3 |
 | POS-06 | Combos y kits con precio propio | Pendiente | 3 |
-| POS-07 | Venta por peso con balanza y etiquetas de peso variable | Pendiente | 3 |
+| POS-07 | Venta por peso con balanza y etiquetas de peso variable | Parcial: etiquetas de peso variable | 3a |
 | POS-08 | Venta de artículos con lote o serie (la serie se registra al vender) | Pendiente | 6 |
 
 ### Precios y promociones
@@ -38,7 +38,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | POS-11 | Listas de precios por tienda, por cliente y por canal | Pendiente | 3 |
 | POS-12 | Promociones con reglas y vigencia (2x1, % por categoría, por horario, por monto) | Pendiente | 3 |
 | POS-13 | Cupones de un uso o de campaña | Pendiente | 3 |
-| POS-14 | Cambio de precio en caja solo con permiso, auditado | Pendiente | 3 |
+| POS-14 | Cambio de precio en caja solo con permiso, auditado | Hecho | 3a |
 
 ### Cobro
 
@@ -92,7 +92,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | POS-60 | Lector de códigos en modo teclado | Hecho | — |
 | POS-61 | Impresora de tickets ESC/POS (red, USB, Bluetooth), plantilla por tienda y reimpresión | Parcial: por red; USB y Bluetooth pendientes | 2 |
 | POS-62 | Cajón de dinero | Hecho | 2 |
-| POS-63 | Balanza | Pendiente | 3 |
+| POS-63 | Balanza | Parcial: etiquetas EAN-13 de la balanza; falta la balanza conectada a la caja | 3a |
 | POS-64 | Visor o segunda pantalla para el cliente | Pendiente | 8 |
 | POS-65 | Escaneo con la cámara del celular | Pendiente | 3 |
 
@@ -216,6 +216,16 @@ CRM (decisión 1).
 
 **Terminado cuando:** un 2x1 por categoría y un cupón se aplican igual en dos cajas sin conexión; escanear la caja
 vende 12 unidades; una etiqueta de balanza agrega el peso correcto.
+
+**Partes:** 3a, presentaciones, etiquetas de balanza y cambio de precio con permiso; 3b, listas de precios, promociones,
+cupones y descuento por ticket; 3c, variantes, modificadores, combos, balanza conectada y escaneo con cámara.
+
+**Estado 3a (2026-11):** hecha. El POS guarda las presentaciones que trae el artículo del hub; escanear el código de
+una presentación agrega sus unidades (la caja de 12 son 12, al precio unitario) y la línea vendida lleva `presentation`.
+Etiquetas de peso variable EAN-13 (prefijo 20 a 29, PLU = SKU numérico del artículo, peso en gramos o precio en
+céntimos, con dígito de control), configurables por tienda. Cobrar a otro precio que el de lista necesita
+`sale.change_price` (supervisor, o su PIN), queda en la auditoría como `price.override` y la línea lleva `listPrice`.
+Pruebas en `CatalogTests`. Además, el buscador de la caja ya no pierde dígitos cuando un lector escribe rápido.
 
 ## Fase 4: postventa y clientes · M
 
