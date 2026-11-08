@@ -255,6 +255,29 @@
                         <label class="check"><input type="checkbox" @bind="_store.PrintAutomatically" />@T("settings.imprimir_al_cobrar")</label>
                         <label class="check"><input type="checkbox" @bind="_store.OpenDrawer" />@T("settings.abrir_cajon_en_efectivo")</label>
                         <label class="check"><input type="checkbox" @bind="_store.BlindClose" />@T("settings.cierre_ciego")</label>
+                        <label class="check"><input type="checkbox" @bind="_store.ScaleLabels" />@T("settings.etiquetas_de_balanza")</label>
+                        @if (_store.ScaleLabels)
+                        {
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label>@T("settings.la_etiqueta_trae")</label>
+                                    <select class="select" @bind="_store.ScaleMode">
+                                        <option value="@ScaleLabel.Weight">@T("settings.balanza_peso")</option>
+                                        <option value="@ScaleLabel.Price">@T("settings.balanza_precio")</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label>@T("settings.digitos_del_codigo")</label>
+                                    <select class="select" @bind="_store.ScaleDigits">
+                                        @for (var d = ScaleLabel.MinItemDigits; d <= ScaleLabel.MaxItemDigits; d++)
+                                        {
+                                            <option value="@d">@d</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                            <p class="hint">@T("settings.balanza_explica", ScaleLabel.Build("20", "123", _store.ScaleMode == ScaleLabel.Price ? 1250 : 750, _store.ScaleDigits))</p>
+                        }
                         <div><button class="btn btn-dark btn-sm" @onclick="SaveStoreAsync">@T("settings.guardar")</button></div>
                     </div>
                 </div>
@@ -295,14 +318,18 @@
         public bool PrintAutomatically { get; set; } = true;
         public bool OpenDrawer { get; set; } = true;
         public bool BlindClose { get; set; }
+        public bool ScaleLabels { get; set; }
+        public string ScaleMode { get; set; } = ScaleLabel.Weight;
+        public int ScaleDigits { get; set; } = 5;
 
         public static StoreForm From(StoreSettings s) => new()
         {
             Header = s.TicketHeader, Footer = s.TicketFooter, Columns = s.PaperColumns, PrintAutomatically = s.PrintAutomatically,
-            OpenDrawer = s.OpenDrawerOnCash, BlindClose = s.BlindClose,
+            OpenDrawer = s.OpenDrawerOnCash, BlindClose = s.BlindClose, ScaleLabels = s.ScaleLabels, ScaleMode = s.ScaleLabelMode,
+            ScaleDigits = s.ScaleItemDigits,
         };
 
-        public StoreSettings ToSettings() => new(Header, Footer, Columns, BlindClose, PrintAutomatically, OpenDrawer);
+        public StoreSettings ToSettings() => new(Header, Footer, Columns, BlindClose, PrintAutomatically, OpenDrawer, ScaleLabels, ScaleMode, ScaleDigits);
     }
 
     private IReadOnlyList<VortexFailedEntry> _failed = [];

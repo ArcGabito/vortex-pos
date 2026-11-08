@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using VortexApi.Client;
+using VortexApi.Suite.Money;
 using VortexPos.Core.Data;
 using VortexPos.Core.Domain;
 using VortexPos.Core.Sync;
@@ -23,7 +24,8 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
     {
         var d = change.Data;
         await using var c = await Db.OpenAsync(ct);
-        await c.ExecAsync("""
+        await using var tx = c.BeginTransaction();
+        var applied = await c.ExecAsync("""
             INSERT INTO items (id, sku, name, kind, description, unit, barcode, category, price, currency_code, tax_code,
                                track_inventory, is_active, version, is_deleted, pending, updated_at)
             VALUES ($id, $sku, $name, $kind, $desc, $unit, $barcode, $category, $price, $currency, $tax, $track, $active,
@@ -35,10 +37,22 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
                 track_inventory = excluded.track_inventory, is_active = excluded.is_active, version = excluded.version,
                 is_deleted = excluded.is_deleted, pending = 0, updated_at = excluded.updated_at
             WHERE excluded.version > items.version
-            """, null, ("$id", change.EntityId), ("$sku", d.Sku), ("$name", d.Name), ("$kind", d.Kind), ("$desc", d.Description),
+            """, tx, ("$id", change.EntityId), ("$sku", d.Sku), ("$name", d.Name), ("$kind", d.Kind), ("$desc", d.Description),
             ("$unit", d.Unit), ("$barcode", d.Barcode), ("$category", d.Category), ("$price", d.Price),
             ("$currency", d.CurrencyCode), ("$tax", d.TaxCode), ("$track", d.TrackInventory), ("$active", d.IsActive),
             ("$version", change.Version), ("$deleted", Deleted(change.Operation, d.Meta)), ("$updated", d.Meta.UpdatedAt));
+
+        // Las presentaciones son parte del artículo: si la versión se aplicó, quedan exactamente las que trae.
+        if (applied > 0)
+        {
+            await c.ExecAsync("DELETE FROM item_presentations WHERE item_id = $id", tx, ("$id", change.EntityId));
+            foreach (var p in (d.Presentations ?? []).Where(p => p.Factor > 0 && !string.IsNullOrWhiteSpace(p.Code)).DistinctBy(p => p.Code))
+                await c.ExecAsync("""
+                    INSERT INTO item_presentations (item_id, code, name, factor, barcode) VALUES ($id, $code, $name, $factor, $barcode)
+                    """, tx, ("$id", change.EntityId), ("$code", p.Code), ("$name", p.Name), ("$factor", p.Factor),
+                    ("$barcode", Clean(p.Barcode)));
+        }
+        await tx.CommitAsync(ct);
     }
 
     public async Task ApplySiteAsync(VortexMasterChange<VortexSite> change, CancellationToken ct = default)
@@ -252,6 +266,71 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
 
     public async Task<IReadOnlyList<ItemRow>> SearchItemsAsync(string? term, int limit = 8, Guid? siteId = null, CancellationToken ct = default) =>
         (await GetItemsAsync(term, null, 1, limit, includeInactive: false, siteId, ct)).Items;
+
+    public async Task<IReadOnlyList<ItemPresentationRow>> GetPresentationsAsync(Guid itemId, CancellationToken ct = default)
+    {
+        await using var c = await Db.OpenAsync(ct);
+        return await c.QueryAsync("SELECT * FROM item_presentations WHERE item_id = $id ORDER BY factor", ReadPresentation, null,
+            ("$id", itemId));
+    }
+
+    /// <summary>
+    /// Lo que la caja hace con un código escaneado: el código del artículo (o su SKU) agrega una unidad; el de una
+    /// presentación agrega las unidades que trae (la caja de 12 son 12); una etiqueta de balanza, si la tienda las usa,
+    /// agrega el peso (o lo que equivale al precio impreso). Null si no es de ningún artículo activo.
+    /// </summary>
+    public async Task<ScanMatch?> ResolveScanAsync(string code, Guid? siteId = null, CancellationToken ct = default)
+    {
+        code = code.Trim();
+        if (code.Length == 0)
+            return null;
+        await using var c = await Db.OpenAsync(ct);
+        const string select = """
+            SELECT i.*, (SELECT SUM(s.on_hand) FROM stock s WHERE s.item_id = i.id AND ($site IS NULL OR s.site_id = $site)) AS on_hand
+            FROM items i
+            """;
+        if (await c.FirstOrDefaultAsync($"""
+                {select} WHERE i.is_deleted = 0 AND i.is_active = 1 AND (i.barcode = $code OR i.sku = $code COLLATE NOCASE)
+                ORDER BY i.barcode = $code DESC LIMIT 1
+                """, ReadItem, null, ("$code", code), ("$site", siteId)) is { } item)
+            return new ScanMatch(item, 1);
+
+        if (await c.FirstOrDefaultAsync("""
+                SELECT p.* FROM item_presentations p JOIN items i ON i.id = p.item_id
+                WHERE p.barcode = $code AND i.is_deleted = 0 AND i.is_active = 1 LIMIT 1
+                """, ReadPresentation, null, ("$code", code)) is { } presentation)
+        {
+            var owner = await c.FirstOrDefaultAsync($"{select} WHERE i.id = $id", ReadItem, null, ("$id", presentation.ItemId), ("$site", siteId));
+            return new ScanMatch(owner!, presentation.Factor, presentation);
+        }
+
+        var site = siteId ?? await DefaultSiteAsync(c, null);
+        var store = site is { } s ? await StoreSettingsService.GetAsync(c, null, s) : StoreSettings.Default;
+        if (!store.ScaleLabels || !ScaleLabel.TryParse(code, store.ScaleItemDigits, out var plu, out var value) || value <= 0)
+            return null;
+        // El PLU de la balanza es el SKU numérico del artículo (sin importar los ceros a la izquierda) o su código de barras.
+        var weighed = await c.FirstOrDefaultAsync($"""
+            {select} WHERE i.is_deleted = 0 AND i.is_active = 1
+              AND ((i.sku GLOB '[0-9]*' AND ltrim(i.sku, '0') = $plu) OR i.barcode = $raw)
+            LIMIT 1
+            """, ReadItem, null, ("$plu", plu.TrimStart('0')), ("$raw", plu), ("$site", siteId));
+        if (weighed is null)
+            return null;
+        decimal quantity;
+        if (store.ScaleLabelMode == ScaleLabel.Price)
+        {
+            if (weighed.Price <= 0)
+                return null;
+            var amount = value / (decimal)Math.Pow(10, Currencies.Get(weighed.CurrencyCode).Decimals);
+            quantity = Math.Round(amount / weighed.Price, 3, MidpointRounding.AwayFromZero);
+        }
+        else
+            quantity = value / 1000m;
+        return quantity > 0 ? new ScanMatch(weighed, quantity, Weighed: true) : null;
+    }
+
+    private static ItemPresentationRow ReadPresentation(SqliteDataReader r) =>
+        new(r.Guid("item_id"), r.Str("code"), r.Str("name"), r.Dec("factor"), r.StrOrNull("barcode"));
 
     public async Task<ItemRow?> GetItemAsync(Guid id, Guid? siteId = null, CancellationToken ct = default)
     {

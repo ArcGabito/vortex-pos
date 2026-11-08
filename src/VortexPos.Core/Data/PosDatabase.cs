@@ -156,5 +156,17 @@ internal static class Schema
             kind TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT,
             PRIMARY KEY (kind, id));
         """,
+        // 4: catálogo de la cadena (fase 3a). Presentaciones de cada artículo (del hub: escanear la caja vende la caja) y,
+        // en cada línea vendida, la presentación y el precio de lista cuando la caja lo cambió. Se vuelven a bajar los
+        // artículos para traer sus presentaciones.
+        """
+        CREATE TABLE item_presentations (
+            item_id TEXT NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL, factor REAL NOT NULL, barcode TEXT,
+            PRIMARY KEY (item_id, code));
+        CREATE INDEX ix_item_presentations_barcode ON item_presentations (barcode);
+        ALTER TABLE sale_lines ADD COLUMN presentation TEXT;
+        ALTER TABLE sale_lines ADD COLUMN list_price REAL;
+        DELETE FROM sync_cursors WHERE stream = 'master';
+        """,
     ];
 }

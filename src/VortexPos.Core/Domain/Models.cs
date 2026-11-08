@@ -100,7 +100,18 @@ public static class SaleStatuses
     public const string Voided = "voided";
 }
 
-public sealed record CartLine(Guid ItemId, decimal Quantity, decimal? UnitPrice = null, decimal Discount = 0);
+/// <summary>
+/// Línea del carrito. <paramref name="Quantity"/> va siempre en la unidad del artículo (una caja de 12 son 12); la
+/// <paramref name="Presentation"/> solo dice cómo se vendió. Un <paramref name="UnitPrice"/> distinto del de lista
+/// necesita permiso.
+/// </summary>
+public sealed record CartLine(Guid ItemId, decimal Quantity, decimal? UnitPrice = null, decimal Discount = 0, string? Presentation = null);
+
+/// <summary>Presentación de un artículo (caja, pack…) con cuántas unidades trae y su código de barras.</summary>
+public sealed record ItemPresentationRow(Guid ItemId, string Code, string Name, decimal Factor, string? Barcode);
+
+/// <summary>Qué se escaneó: el artículo, cuántas unidades agrega y si vino por presentación o etiqueta de balanza.</summary>
+public sealed record ScanMatch(ItemRow Item, decimal Quantity, ItemPresentationRow? Presentation = null, bool Weighed = false);
 
 public sealed record PaymentDraft(string Method, decimal Amount, string? Reference = null);
 
@@ -211,7 +222,8 @@ public sealed record HeldSale(Guid Id, string? Label, Guid? CustomerId, IReadOnl
 /// </summary>
 public sealed record StoreSettings(
     string? TicketHeader = null, string? TicketFooter = null, int PaperColumns = 48, bool BlindClose = false,
-    bool PrintAutomatically = true, bool OpenDrawerOnCash = true)
+    bool PrintAutomatically = true, bool OpenDrawerOnCash = true, bool ScaleLabels = false,
+    string ScaleLabelMode = ScaleLabel.Weight, int ScaleItemDigits = 5)
 {
     public static StoreSettings Default { get; } = new();
 }

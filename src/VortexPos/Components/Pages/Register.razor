@@ -20,7 +20,7 @@ else
 {
     <div class="register">
         <section class="register-catalog">
-            <ItemPicker @ref="_picker" SiteId="_session.SiteId" OnSelected="Add" />
+            <ItemPicker @ref="_picker" SiteId="_session.SiteId" OnSelected="Add" OnCode="ScanAsync" />
             @if (_categories.Count > 0)
             {
                 <div class="chips">
@@ -96,10 +96,16 @@ else
                     <div class="cart-lines">
                         @foreach (var line in _cart)
                         {
-                            <div class="cart-line" @key="line.Item.Id">
+                            <div class="cart-line" @key="line">
                                 <div class="two-line">
-                                    <span class="t1">@line.Item.Name</span>
-                                    <span class="t2">@Fmt.Money(line.UnitPrice, line.Item.CurrencyCode) c/u@(line.Discount > 0 ? $" · −{Fmt.Money(line.Discount, line.Item.CurrencyCode)}" : "")</span>
+                                    <span class="t1">@line.Item.Name@(line.Presentation is { } pr ? $" · {pr.Name}" : "")</span>
+                                    <span class="t2">
+                                        @if (line.PriceChanged)
+                                        {
+                                            <s class="faint">@Fmt.Money(line.Item.Price, line.Item.CurrencyCode)</s>
+                                        }
+                                        @Fmt.Money(line.UnitPrice, line.Item.CurrencyCode) @(line.Weighed ? $"/ {line.Item.Unit}" : "c/u")@(line.Discount > 0 ? $" · −{Fmt.Money(line.Discount, line.Item.CurrencyCode)}" : "")
+                                    </span>
                                 </div>
                                 <div class="qty">
                                     <button class="btn btn-ghost icon-btn sm" @onclick="() => Step(line, -1)" aria-label="@(T("register.quitar_uno"))"><Icon Name="minus" Size="16" /></button>
@@ -109,6 +115,7 @@ else
                                 <strong class="amount">@Fmt.Money(line.Total, line.Item.CurrencyCode)</strong>
                                 <KebabMenu>
                                     <button @onclick="() => EditDiscount(line)"><Icon Name="tag" Size="18" />@T("register.descuento")</button>
+                                    <button @onclick="() => EditPrice(line)"><Icon Name="edit" Size="18" />@T("register.cambiar_precio")</button>
                                     <button class="danger" @onclick="() => _cart.Remove(line)"><Icon Name="x" Size="18" />@T("register.quitar")</button>
                                 </KebabMenu>
                             </div>
@@ -143,6 +150,31 @@ else
             <button class="btn btn-accent" disabled="@(!CanCharge)" @onclick="OpenPayment">@T("register.cobrar", (Fmt.Money(Totals.Total, Currency)))</button>
         </div>
     }
+}
+
+@if (_priceFor is { } pf)
+{
+    <Modal Title="@(T("register.cambiar_precio"))" Subtitle="@pf.Item.Name" Size="sm" Error="@_error" OnClose="() => _priceFor = null">
+        <ChildContent>
+            <div class="field">
+                <label>@T("register.precio_unitario", Fmt.Symbol(pf.Item.CurrencyCode))</label>
+                <input class="control" type="number" inputmode="decimal" min="0" step="0.10" @bind="_price" />
+                <span class="hint">@T("register.precio_de_lista", Fmt.Money(pf.Item.Price, pf.Item.CurrencyCode))</span>
+            </div>
+            @if (!Session.Can(PosPermissions.ChangePrice))
+            {
+                <div class="alert info"><Icon Name="lock" Size="18" /><span>@T("register.precio_lo_autoriza")</span></div>
+            }
+        </ChildContent>
+        <Footer>
+            @if (pf.PriceChanged)
+            {
+                <button class="btn btn-ghost" @onclick="() => { pf.UnitPrice = pf.Item.Price; _priceFor = null; }">@T("register.volver_al_de_lista")</button>
+            }
+            <button class="btn" @onclick="() => _priceFor = null">@T("register.cancelar")</button>
+            <button class="btn btn-dark" @onclick="ApplyPrice">@T("register.aplicar")</button>
+        </Footer>
+    </Modal>
 }
 
 @if (_discountFor is { } d)
@@ -293,6 +325,11 @@ else
         public decimal Quantity { get; set; } = 1;
         public decimal UnitPrice { get; set; }
         public decimal Discount { get; set; }
+        public ItemPresentationRow? Presentation { get; init; }
+        public bool Weighed { get; init; }
+        public bool PriceChanged => UnitPrice != Item.Price;
+        public decimal Step => Presentation?.Factor ?? 1;
+        public CartLine ToLine() => new(Item.Id, Quantity, UnitPrice, Math.Min(Discount, Quantity * UnitPrice), Presentation?.Code);
         public decimal Total => Quantity > 0 ? SalesService.LineTotal(Quantity, UnitPrice, Math.Min(Discount, Quantity * UnitPrice), Item.CurrencyCode) : 0;
     }
 
@@ -305,8 +342,8 @@ else
     private Guid? _customerId;
     private ItemPicker? _picker;
 
-    private CartItem? _discountFor;
-    private decimal _discount;
+    private CartItem? _discountFor, _priceFor;
+    private decimal _discount, _price;
     private bool _paying, _busy;
     private readonly Dictionary<string, decimal> _payments = [];
     private readonly Dictionary<string, string?> _references = [];
@@ -346,19 +383,56 @@ else
         await LoadTilesAsync();
     }
 
-    private void Add(ItemRow item)
+    private void Add(ItemRow item) => Add(new ScanMatch(item, 1));
+
+    /// <summary>
+    /// Suma lo escaneado a la venta: la misma presentación se acumula en su línea; cada etiqueta de balanza es una
+    /// línea propia (su peso es el de ese paquete).
+    /// </summary>
+    private void Add(ScanMatch match)
     {
-        if (_cart.FirstOrDefault(l => l.Item.Id == item.Id) is { } existing)
-            existing.Quantity += 1;
+        if (!match.Weighed && _cart.FirstOrDefault(l => !l.Weighed && l.Item.Id == match.Item.Id && l.Presentation?.Code == match.Presentation?.Code) is { } existing)
+            existing.Quantity += match.Quantity;
         else
-            _cart.Add(new CartItem { Item = item, UnitPrice = item.Price });
+            _cart.Add(new CartItem { Item = match.Item, UnitPrice = match.Item.Price, Quantity = match.Quantity, Presentation = match.Presentation, Weighed = match.Weighed });
+    }
+
+    private async Task<bool> ScanAsync(string code)
+    {
+        if (await Pos.Master.ResolveScanAsync(code, _session?.SiteId) is not { } match)
+            return false;
+        Add(match);
+        StateHasChanged();
+        return true;
     }
 
     private void Step(CartItem line, int delta)
     {
-        line.Quantity = Math.Max(0, line.Quantity + delta);
+        line.Quantity = Math.Max(0, line.Quantity + delta * line.Step);
         if (line.Quantity == 0)
             _cart.Remove(line);
+    }
+
+    private void EditPrice(CartItem line)
+    {
+        _error = null;
+        _price = line.UnitPrice;
+        _priceFor = line;
+    }
+
+    /// <summary>El permiso se revisa al cobrar: si el cajero no lo tiene, ahí se pide el PIN del supervisor.</summary>
+    private void ApplyPrice()
+    {
+        if (_priceFor is not { } line)
+            return;
+        if (_price < 0)
+        {
+            _error = T("register.el_precio_no_puede_ser_negativo");
+            return;
+        }
+        line.UnitPrice = _price;
+        line.Discount = Math.Min(line.Discount, line.Quantity * line.UnitPrice);
+        _priceFor = null;
     }
 
     private void Clear()
@@ -413,7 +487,7 @@ else
     private async Task ChargeAsync()
     {
         var draft = new SaleDraft(
-            _cart.Where(l => l.Quantity > 0).Select(l => new CartLine(l.Item.Id, l.Quantity, l.UnitPrice, Math.Min(l.Discount, l.Quantity * l.UnitPrice))).ToList(),
+            _cart.Where(l => l.Quantity > 0).Select(l => l.ToLine()).ToList(),
             _payments.Where(p => p.Value > 0).Select(p => new PaymentDraft(p.Key, p.Value, _references.GetValueOrDefault(p.Key))).ToList(),
             _customerId);
         _busy = true;
@@ -441,7 +515,7 @@ else
     private async Task HoldAsync()
     {
         var lines = _cart.Where(l => l.Quantity > 0)
-            .Select(l => new CartLine(l.Item.Id, l.Quantity, l.UnitPrice, Math.Min(l.Discount, l.Quantity * l.UnitPrice))).ToList();
+            .Select(l => l.ToLine()).ToList();
         _busy = true;
         _error = await TryAsync(() => Pos.Sales.HoldAsync(lines, _customerId, _holdLabel), T("register.ticket_en_espera"));
         _busy = false;
@@ -458,7 +532,7 @@ else
         if (_cart.Count > 0)
         {
             var current = _cart.Where(l => l.Quantity > 0)
-                .Select(l => new CartLine(l.Item.Id, l.Quantity, l.UnitPrice, Math.Min(l.Discount, l.Quantity * l.UnitPrice))).ToList();
+                .Select(l => l.ToLine()).ToList();
             if (current.Count > 0 && await TryAsync(() => Pos.Sales.HoldAsync(current, _customerId, null)) is { } holdError)
             {
                 Toasts.Error(holdError);
@@ -475,7 +549,16 @@ else
         foreach (var line in held!.Lines)
         {
             if (await Pos.Master.GetItemAsync(line.ItemId, _session?.SiteId) is { } item)
-                _cart.Add(new CartItem { Item = item, Quantity = line.Quantity, UnitPrice = line.UnitPrice ?? item.Price, Discount = line.Discount });
+            {
+                var presentation = line.Presentation is { } code
+                    ? (await Pos.Master.GetPresentationsAsync(item.Id)).FirstOrDefault(p => p.Code == code)
+                    : null;
+                _cart.Add(new CartItem
+                {
+                    Item = item, Quantity = line.Quantity, UnitPrice = line.UnitPrice ?? item.Price, Discount = line.Discount,
+                    Presentation = presentation, Weighed = presentation is null && line.Quantity % 1 != 0,
+                });
+            }
         }
         _customerId = held.CustomerId;
         _held = await Pos.Sales.GetHeldAsync();

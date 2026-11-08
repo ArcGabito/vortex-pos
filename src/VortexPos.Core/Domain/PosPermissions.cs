@@ -15,6 +15,9 @@ public static class PosPermissions
     /// <summary>Descuentos por encima de <see cref="CashierDiscountLimit"/> del importe de la línea.</summary>
     public const string DiscountUnlimited = "sale.discount_unlimited";
 
+    /// <summary>Cobrar un artículo a otro precio que el de lista.</summary>
+    public const string ChangePrice = "sale.change_price";
+
     public const string Void = "sale.void";
     public const string Return = "sale.return";
     public const string OpenCash = "cash.open";
@@ -45,13 +48,14 @@ public static class PosPermissions
 
     public static readonly PermissionMatrix Matrix = PermissionMatrix.Create(Cashier,
         (Cashier, [Sell, OpenCash, CreateCustomer]),
-        (Supervisor, [Sell, OpenCash, CreateCustomer, DiscountUnlimited, Void, Return, CloseCash, ViewAudit, CashMovement, CashReport,
+        (Supervisor, [Sell, OpenCash, CreateCustomer, DiscountUnlimited, ChangePrice, Void, Return, CloseCash, ViewAudit, CashMovement, CashReport,
             StoreSettings]));
 
     public static string Describe(string permission) => permission switch
     {
         Sell => T("permiso.sell"),
         DiscountUnlimited => T("permiso.discountunlimited"),
+        ChangePrice => T("permiso.changeprice"),
         Void => T("permiso.void"),
         Return => T("permiso.return"),
         OpenCash => T("permiso.opencash"),

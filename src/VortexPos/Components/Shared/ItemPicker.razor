@@ -3,12 +3,14 @@
 @inject IJSRuntime JS
 @*
     Buscador de artículos por SKU, nombre o código de barras. Funciona con lectores de código de barras que escriben
-    el código y envían Enter: si hay una coincidencia exacta, la elige sola.
+    el código y envían Enter: si hay una coincidencia exacta, la elige sola. El campo no se enlaza con value: un lector
+    escribe más rápido de lo que la pantalla se vuelve a dibujar y cada dibujado devolvía un valor viejo (se perdían
+    dígitos); se vacía con ClearAsync.
 *@
 <div class="picker">
     <div class="input-icon" @ref="_anchor">
         <Icon Name="barcode" Size="18" />
-        <input @ref="_input" class="control" placeholder="@Placeholder" value="@_term" autocomplete="off"
+        <input @ref="_input" class="control" placeholder="@Placeholder" autocomplete="off"
                @oninput="OnInput" @onkeydown="OnKeyAsync" @onfocus="OnFocusAsync" @onblur="OnBlur" />
     </div>
     @if (_open && _results.Count > 0)
@@ -33,6 +35,12 @@
     [Parameter] public string Placeholder { get; set; } = T("itempicker.escanea_busca_por_sku_nombre");
     [Parameter] public Guid? SiteId { get; set; }
     [Parameter] public EventCallback<ItemRow> OnSelected { get; set; }
+
+    /// <summary>
+    /// Código que no es el de ningún artículo (presentación, etiqueta de balanza): la página lo resuelve y devuelve si
+    /// lo usó. Se llama al pulsar Enter, antes de elegir por nombre.
+    /// </summary>
+    [Parameter] public Func<string, Task<bool>>? OnCode { get; set; }
 
     private ElementReference _anchor, _input;
     private string _term = "";
@@ -88,6 +96,11 @@
                 await SearchAsync();
                 var term = _term.Trim();
                 var exact = _results.FirstOrDefault(i => i.Barcode == term || string.Equals(i.Sku, term, StringComparison.OrdinalIgnoreCase));
+                if (exact is null && term.Length > 0 && OnCode is not null && await OnCode(term))
+                {
+                    await ClearAsync();
+                    break;
+                }
                 var pick = exact ?? (_results.Count == 1 ? _results[0] : _open && _highlight < _results.Count ? _results[_highlight] : null);
                 if (pick is not null)
                     await SelectAsync(pick);
@@ -95,11 +108,17 @@
         }
     }
 
-    private async Task SelectAsync(ItemRow item)
+    private async Task ClearAsync()
     {
         _term = "";
         _results = [];
         _open = false;
+        await JS.InvokeVoidAsync("vortex.setValue", _input, "");
+    }
+
+    private async Task SelectAsync(ItemRow item)
+    {
+        await ClearAsync();
         await OnSelected.InvokeAsync(item);
         await JS.InvokeVoidAsync("vortex.focus", _input);
     }

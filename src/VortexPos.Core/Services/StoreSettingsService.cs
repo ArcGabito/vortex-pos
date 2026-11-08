@@ -40,6 +40,8 @@ public sealed class StoreSettingsService(PosDatabase db, IPosContext context, Ti
         Require(PaperWidths.Contains(settings.PaperColumns), T("error.ancho_de_papel_invalido"));
         Require((settings.TicketHeader?.Length ?? 0) <= 500 && (settings.TicketFooter?.Length ?? 0) <= 500, T("error.texto_del_ticket_muy_largo"));
         Require(CanUseSite(siteId), T("error.tienda_no_asignada"));
+        Require(ScaleLabel.Modes.Contains(settings.ScaleLabelMode) &&
+            settings.ScaleItemDigits is >= ScaleLabel.MinItemDigits and <= ScaleLabel.MaxItemDigits, T("error.etiqueta_de_balanza_invalida"));
         var clean = settings with { TicketHeader = Clean(settings.TicketHeader), TicketFooter = Clean(settings.TicketFooter) };
         return InTransactionAsync(async (c, tx, now) =>
         {
