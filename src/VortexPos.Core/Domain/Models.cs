@@ -122,12 +122,17 @@ public sealed record SaleDraft(IReadOnlyList<CartLine> Lines, IReadOnlyList<Paym
     string? Coupon = null, decimal TicketDiscount = 0);
 
 /// <summary>Cómo queda una línea agrupada (artículo, presentación y precio) con sus descuentos.</summary>
+/// <param name="RequestedPrice">El precio que mandó la caja (null: el de la lista o del artículo).</param>
+/// <param name="BasePrice">El precio de la lista del cliente o la tienda, o el del artículo.</param>
 public sealed record QuoteLine(Guid ItemId, string? Presentation, decimal UnitPrice, decimal Quantity, decimal Gross, decimal PromotionDiscount,
-    string? PromotionName, decimal ManualDiscount, decimal TicketShare, decimal Total);
+    string? PromotionName, decimal ManualDiscount, decimal TicketShare, decimal Total, decimal? RequestedPrice = null, decimal BasePrice = 0);
+
+/// <summary>Lista de precios que rige una venta.</summary>
+public sealed record PriceListRef(Guid Id, string Code, string Name, string CurrencyCode);
 
 /// <summary>La venta tal como se cobraría: líneas, promociones aplicadas y totales (lo mismo que calcula el cobro).</summary>
 public sealed record SaleQuote(IReadOnlyList<QuoteLine> Lines, IReadOnlyList<PromotionEngine.Applied> Promotions, decimal TicketDiscount,
-    SaleTotals Totals);
+    SaleTotals Totals, PriceListRef? PriceList = null);
 
 /// <summary>Totales de la venta. <c>Subtotal</c> es la base sin impuesto; con precios sin impuesto (EE. UU.) el impuesto se suma.</summary>
 public sealed record SaleTotals(decimal Subtotal, decimal Tax, decimal Discount, decimal Total);

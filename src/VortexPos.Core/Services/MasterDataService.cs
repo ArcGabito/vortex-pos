@@ -82,21 +82,48 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
         await using var c = await Db.OpenAsync(ct);
         await c.ExecAsync("""
             INSERT INTO parties (id, name, trade_name, kind, document_type, document_number, is_customer, is_supplier, email,
-                                 phone, city, is_active, version, is_deleted, pending, updated_at)
+                                 phone, city, is_active, version, is_deleted, pending, updated_at, price_list_id)
             VALUES ($id, $name, $trade, $kind, $doctype, $docnum, $customer, $supplier, $email, $phone, $city, $active,
-                    $version, $deleted, 0, $updated)
+                    $version, $deleted, 0, $updated, $list)
             ON CONFLICT (id) DO UPDATE SET
                 name = excluded.name, trade_name = excluded.trade_name, kind = excluded.kind,
                 document_type = excluded.document_type, document_number = excluded.document_number,
                 is_customer = excluded.is_customer, is_supplier = excluded.is_supplier, email = excluded.email,
                 phone = excluded.phone, city = excluded.city, is_active = excluded.is_active, version = excluded.version,
-                is_deleted = excluded.is_deleted, pending = 0, updated_at = excluded.updated_at
+                is_deleted = excluded.is_deleted, pending = 0, updated_at = excluded.updated_at, price_list_id = excluded.price_list_id
             WHERE excluded.version > parties.version
             """, null, ("$id", change.EntityId), ("$name", d.Name), ("$trade", d.TradeName), ("$kind", d.Kind),
             ("$doctype", d.DocumentType), ("$docnum", d.DocumentNumber), ("$customer", d.IsCustomer),
             ("$supplier", d.IsSupplier), ("$email", d.Email), ("$phone", d.Phone), ("$city", d.Address?.City),
             ("$active", d.IsActive), ("$version", change.Version), ("$deleted", Deleted(change.Operation, d.Meta)),
-            ("$updated", d.Meta.UpdatedAt));
+            ("$updated", d.Meta.UpdatedAt), ("$list", d.Credit?.PriceListId));
+    }
+
+    /// <summary>Lista de precios del hub (<c>price_list</c>): se guarda entera con sus escalas si es más nueva.</summary>
+    public async Task ApplyPriceListAsync(VortexMasterChange<VortexPriceList> change, CancellationToken ct = default)
+    {
+        var d = change.Data;
+        await using var c = await Db.OpenAsync(ct);
+        await using var tx = c.BeginTransaction();
+        var applied = await c.ExecAsync("""
+            INSERT INTO price_lists (id, code, name, currency_code, valid_from, valid_to, site_ids, is_active, is_deleted, version, updated_at)
+            VALUES ($id, $code, $name, $currency, $from, $to, $sites, $active, $deleted, $version, $updated)
+            ON CONFLICT (id) DO UPDATE SET code = excluded.code, name = excluded.name, currency_code = excluded.currency_code,
+                valid_from = excluded.valid_from, valid_to = excluded.valid_to, site_ids = excluded.site_ids,
+                is_active = excluded.is_active, is_deleted = excluded.is_deleted, version = excluded.version, updated_at = excluded.updated_at
+            WHERE excluded.version > price_lists.version
+            """, tx, ("$id", change.EntityId), ("$code", d.Code), ("$name", d.Name), ("$currency", d.CurrencyCode),
+            ("$from", d.ValidFrom?.ToString("yyyy-MM-dd")), ("$to", d.ValidTo?.ToString("yyyy-MM-dd")),
+            ("$sites", System.Text.Json.JsonSerializer.Serialize(d.SiteIds ?? [])), ("$active", d.IsActive),
+            ("$deleted", Deleted(change.Operation, d.Meta)), ("$version", change.Version), ("$updated", d.Meta.UpdatedAt));
+        if (applied > 0)
+        {
+            await c.ExecAsync("DELETE FROM price_list_lines WHERE list_id = $id", tx, ("$id", change.EntityId));
+            foreach (var line in (d.Lines ?? []).GroupBy(l => (l.ItemId, l.MinQuantity)).Select(g => g.Last()))
+                await c.ExecAsync("INSERT INTO price_list_lines (list_id, item_id, min_qty, price) VALUES ($id, $item, $min, $price)", tx,
+                    ("$id", change.EntityId), ("$item", line.ItemId), ("$min", line.MinQuantity), ("$price", line.Price));
+        }
+        await tx.CommitAsync(ct);
     }
 
     public async Task ApplyCompanyAsync(VortexMasterChange<VortexCompany> change, CancellationToken ct = default)

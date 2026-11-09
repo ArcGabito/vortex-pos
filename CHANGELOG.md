@@ -8,6 +8,9 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Listas de precios (fase 3c):** las listas del hub (`price_list`) por cliente y por tienda, con escalas por cantidad
+  y vigencia, fijan el precio base de cada línea; cobrar a ese precio no pide permiso. La caja muestra la lista que rige
+  y el catálogo sus precios. `sale.completed` lleva `priceListId`.
 - **Promociones y cupones (fase 3b):** porcentaje por artículo o categoría, lleva N paga M (2x1, 3x2) y descuento al
   ticket desde un monto, con vigencia por fechas, días, horario y tiendas; cupones con límite de usos; descuento manual
   al ticket. Se calculan igual en todas las cajas, también sin conexión, y la caja muestra exactamente lo que cobrará.

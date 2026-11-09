@@ -28,7 +28,7 @@ public static class SuiteEvents
 public sealed record SaleCompleted(
     Guid SaleId, string Number, Guid SiteId, Guid? CustomerId, string CurrencyCode, decimal Subtotal, decimal Tax,
     decimal Total, IReadOnlyList<SaleLine> Lines, IReadOnlyList<SalePayment> Payments, decimal Discount = 0,
-    string? CreatedBy = null, string? Coupon = null);
+    string? CreatedBy = null, string? Coupon = null, Guid? PriceListId = null);
 
 public sealed record SaleLine(
     Guid ItemId, string? Sku, decimal Quantity, decimal UnitPrice, decimal Discount, decimal Total, string? Name = null,

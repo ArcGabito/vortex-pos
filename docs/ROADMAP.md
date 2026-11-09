@@ -35,7 +35,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | # | Requisito | Estado | Fase |
 |---|---|---|---|
 | POS-10 | Precio de lista del hub | Hecho | — |
-| POS-11 | Listas de precios por tienda, por cliente y por canal | Pendiente | 3 |
+| POS-11 | Listas de precios por tienda, por cliente y por canal | Hecho (por tienda y por cliente) | 3c |
 | POS-12 | Promociones con reglas y vigencia (2x1, % por categoría, por horario, por monto) | Hecho | 3b |
 | POS-13 | Cupones de un uso o de campaña | Hecho | 3b |
 | POS-14 | Cambio de precio en caja solo con permiso, auditado | Hecho | 3a |
@@ -237,6 +237,15 @@ total. Cupones: activan sus promociones y pueden limitar sus usos, contando tamb
 cajas (sin conexión, dos cajas podrían usar el mismo cupón una vez cada una). Descuento manual al ticket repartido entre
 las líneas (más del 10 % necesita permiso). La caja muestra la cotización de Core (`QuoteAsync`), así lo que se ve es lo
 que se cobra. `sale.completed` gana `coupon` y, por línea, `promotionId`. Pruebas en `PromotionsTests`.
+
+**Estado 3c (2026-11):** hecha. Decisión 1 tomada como se recomendaba: las listas de precios viven en el hub
+(`price_list`, vortex-api#36) y las comparten POS, ERP y CRM. El POS guarda la copia (con escalas por cantidad) y la
+lista de cada cliente (`credit.priceListId`). Precio base de cada línea: la lista del cliente si está vigente, si no la
+de la tienda (la primera por código), si no el precio del artículo; la escala se elige por lo que se lleva del artículo
+en toda la venta y la lista solo rige si está en la moneda del artículo. Cobrar al precio de la lista no es un cambio de
+precio; otro precio sí (permiso y auditoría, con `listPrice` = el de la lista). La caja muestra la lista que rige y el
+catálogo sus precios; al cambiar el cliente se recalcula. `sale.completed` gana `priceListId`. Por canal no se separa:
+el POS es un canal (una lista de tienda es la del canal tienda). Pruebas en `PriceListsTests`.
 
 ## Fase 4: postventa y clientes · M
 
