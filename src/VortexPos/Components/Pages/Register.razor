@@ -43,7 +43,7 @@ else
                         <button class="tile" @key="item.Id" @onclick="() => Add(item)">
                             <Avatar Text="@item.Name" Size="38" Class="square" />
                             <span class="name">@item.Name</span>
-                            <span class="price">@Fmt.Money(item.Price, item.CurrencyCode)</span>
+                            <span class="price">@Fmt.Money(_listPrices.GetValueOrDefault(item.Id, item.Price), item.CurrencyCode)</span>
                             @if (item.TrackInventory && item.OnHand is { } onHand)
                             {
                                 <span class="stock @(onHand <= 0 ? "out" : "")">@T("register.en_tienda", Fmt.Qty(onHand))</span>
@@ -83,6 +83,10 @@ else
                             <option value="@c.Id">@c.Label@(c.Detail is null ? "" : $" · {c.Detail}")</option>
                         }
                     </select>
+                    @if (_quote?.PriceList is { } lista)
+                    {
+                        <span class="hint price-list-hint"><Icon Name="tag" Size="13" />@T("register.precios_de_la_lista", lista.Name)</span>
+                    }
                 </div>
 
                 <div class="field">
@@ -114,6 +118,10 @@ else
                                     <span class="t1">@line.Item.Name@(line.Presentation is { } pr ? $" · {pr.Name}" : "")</span>
                                     <span class="t2">
                                         @if (line.PriceChanged)
+                                        {
+                                            <s class="faint">@Fmt.Money(line.Base, line.Item.CurrencyCode)</s>
+                                        }
+                                        else if (line.Base != line.Item.Price)
                                         {
                                             <s class="faint">@Fmt.Money(line.Item.Price, line.Item.CurrencyCode)</s>
                                         }
@@ -204,7 +212,7 @@ else
             <div class="field">
                 <label>@T("register.precio_unitario", Fmt.Symbol(pf.Item.CurrencyCode))</label>
                 <input class="control" type="number" inputmode="decimal" min="0" step="0.10" @bind="_price" />
-                <span class="hint">@T("register.precio_de_lista", Fmt.Money(pf.Item.Price, pf.Item.CurrencyCode))</span>
+                <span class="hint">@T("register.precio_de_lista", Fmt.Money(pf.Base, pf.Item.CurrencyCode))</span>
             </div>
             @if (!Session.Can(PosPermissions.ChangePrice))
             {
@@ -214,7 +222,7 @@ else
         <Footer>
             @if (pf.PriceChanged)
             {
-                <button class="btn btn-ghost" @onclick="() => { pf.UnitPrice = pf.Item.Price; _priceFor = null; }">@T("register.volver_al_de_lista")</button>
+                <button class="btn btn-ghost" @onclick="() => { pf.Override = null; _priceFor = null; }">@T("register.volver_al_de_lista")</button>
             }
             <button class="btn" @onclick="() => _priceFor = null">@T("register.cancelar")</button>
             <button class="btn btn-dark" @onclick="ApplyPrice">@T("register.aplicar")</button>
@@ -368,19 +376,27 @@ else
     {
         public required ItemRow Item { get; init; }
         public decimal Quantity { get; set; } = 1;
-        public decimal UnitPrice { get; set; }
+        /// <summary>Precio que puso el cajero (null: el de la lista del cliente o la tienda, o el del artículo).</summary>
+        public decimal? Override { get; set; }
+
+        /// <summary>Precio base que resolvió Core en la última cotización (lista o artículo).</summary>
+        public decimal Base { get; set; }
+
+        public decimal UnitPrice => Override ?? Base;
         public decimal Discount { get; set; }
         public ItemPresentationRow? Presentation { get; init; }
         public bool Weighed { get; init; }
-        public bool PriceChanged => UnitPrice != Item.Price;
+        public bool PriceChanged => Override is { } o && o != Base;
         public decimal Step => Presentation?.Factor ?? 1;
-        public CartLine ToLine() => new(Item.Id, Quantity, UnitPrice, Math.Min(Discount, Quantity * UnitPrice), Presentation?.Code);
+        public CartLine ToLine() => new(Item.Id, Quantity, Override, Math.Min(Discount, Quantity * UnitPrice), Presentation?.Code);
         public decimal Total => Quantity > 0 ? SalesService.LineTotal(Quantity, UnitPrice, Math.Min(Discount, Quantity * UnitPrice), Item.CurrencyCode) : 0;
     }
 
     private CashSessionRow? _session;
     private IReadOnlyList<string> _categories = [];
     private IReadOnlyList<ItemRow> _tiles = [];
+    private IReadOnlyDictionary<Guid, decimal> _listPrices = new Dictionary<Guid, decimal>();
+    private Guid? _listPricesFor = Guid.Empty;
     private IReadOnlyList<Option> _customers = [];
     private string _category = "";
     private readonly List<CartItem> _cart = [];
@@ -408,8 +424,8 @@ else
     private bool _editingTicket;
 
     private QuoteLine? QuoteFor(CartItem line) =>
-        _quote is { } q && _cart.First(c => c.Item.Id == line.Item.Id && c.Presentation?.Code == line.Presentation?.Code && c.UnitPrice == line.UnitPrice) == line
-            ? q.Lines.FirstOrDefault(l => l.ItemId == line.Item.Id && l.Presentation == line.Presentation?.Code && l.UnitPrice == line.UnitPrice)
+        _quote is { } q && _cart.First(c => c.Item.Id == line.Item.Id && c.Presentation?.Code == line.Presentation?.Code && c.Override == line.Override) == line
+            ? q.Lines.FirstOrDefault(l => l.ItemId == line.Item.Id && l.Presentation == line.Presentation?.Code && l.RequestedPrice == line.Override)
             : null;
 
     private SaleDraft Draft(IReadOnlyList<PaymentDraft>? payments = null) =>
@@ -419,7 +435,14 @@ else
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await base.OnAfterRenderAsync(firstRender);
-        var key = string.Join("|", _cart.Select(l => $"{l.Item.Id}:{l.Quantity}:{l.UnitPrice}:{l.Discount}:{l.Presentation?.Code}")) + $"|{_coupon}|{_ticketDiscount}";
+        var key = string.Join("|", _cart.Select(l => $"{l.Item.Id}:{l.Quantity}:{l.Override}:{l.Discount}:{l.Presentation?.Code}")) + $"|{_coupon}|{_ticketDiscount}|{_customerId}";
+        if (_listPricesFor != _customerId)
+        {
+            // Otro cliente puede tener otra lista: el catálogo muestra sus precios.
+            _listPricesFor = _customerId;
+            _listPrices = await Pos.Sales.ListPricesAsync(_tiles, _customerId);
+            StateHasChanged();
+        }
         if (key == _quoteKey)
             return;
         _quoteKey = key;
@@ -431,6 +454,10 @@ else
             try
             {
                 _quote = await Pos.Sales.QuoteAsync(Draft());
+                // El precio base de cada línea (lista del cliente o de la tienda, con su escala) viene de Core.
+                foreach (var line in _cart)
+                    if (_quote.Lines.FirstOrDefault(l => l.ItemId == line.Item.Id && l.RequestedPrice == line.Override) is { } ql)
+                        line.Base = ql.BasePrice;
             }
             catch (PosValidationException ex)
             {
@@ -483,8 +510,12 @@ else
         await LoadTilesAsync();
     }
 
-    private async Task LoadTilesAsync() =>
+    private async Task LoadTilesAsync()
+    {
         _tiles = (await Pos.Master.GetItemsAsync(null, _category == "" ? null : _category, 1, 24, includeInactive: false, _session?.SiteId)).Items;
+        _listPrices = await Pos.Sales.ListPricesAsync(_tiles, _customerId);
+        _listPricesFor = _customerId;
+    }
 
     private async Task SetCategoryAsync(string category)
     {
@@ -503,7 +534,7 @@ else
         if (!match.Weighed && _cart.FirstOrDefault(l => !l.Weighed && l.Item.Id == match.Item.Id && l.Presentation?.Code == match.Presentation?.Code) is { } existing)
             existing.Quantity += match.Quantity;
         else
-            _cart.Add(new CartItem { Item = match.Item, UnitPrice = match.Item.Price, Quantity = match.Quantity, Presentation = match.Presentation, Weighed = match.Weighed });
+            _cart.Add(new CartItem { Item = match.Item, Base = match.Item.Price, Quantity = match.Quantity, Presentation = match.Presentation, Weighed = match.Weighed });
     }
 
     private async Task<bool> ScanAsync(string code)
@@ -539,7 +570,7 @@ else
             _error = T("register.el_precio_no_puede_ser_negativo");
             return;
         }
-        line.UnitPrice = _price;
+        line.Override = _price == line.Base ? null : _price;
         line.Discount = Math.Min(line.Discount, line.Quantity * line.UnitPrice);
         _priceFor = null;
     }
@@ -663,7 +694,9 @@ else
                     : null;
                 _cart.Add(new CartItem
                 {
-                    Item = item, Quantity = line.Quantity, UnitPrice = line.UnitPrice ?? item.Price, Discount = line.Discount,
+                    // Los tickets guardados antes de las listas traen el precio del artículo: ese no es un cambio de precio.
+                    Item = item, Quantity = line.Quantity, Override = line.UnitPrice == item.Price ? null : line.UnitPrice, Base = item.Price,
+                    Discount = line.Discount,
                     Presentation = presentation, Weighed = presentation is null && line.Quantity % 1 != 0,
                 });
             }

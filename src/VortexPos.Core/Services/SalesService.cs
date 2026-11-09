@@ -20,7 +20,10 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
 {
     private sealed record PricedLine(ItemRow Item, decimal Quantity, decimal UnitPrice, decimal Discount, decimal Total,
         string? Presentation = null, decimal? ListPrice = null, Guid? PromotionId = null, decimal PromotionDiscount = 0,
-        decimal ManualDiscount = 0, decimal TicketShare = 0, string? PromotionName = null);
+        decimal ManualDiscount = 0, decimal TicketShare = 0, string? PromotionName = null, decimal? RequestedPrice = null, decimal BasePrice = 0);
+
+    private sealed record Priced(List<PricedLine> Lines, IReadOnlyList<PromotionEngine.Applied> Applied, List<string> PriceChanges,
+        PriceListRef? PriceList);
 
     // ---------- Cobro ----------
 
@@ -66,7 +69,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
                     T("error.el_cliente_no_existe"));
 
             var regime = await TaxRegimeAsync(c, tx);
-            var (lines, applied, priceChanges) = await PriceAsync(c, tx, now, draft, siteId);
+            var (lines, applied, priceChanges, priceList) = await PriceAsync(c, tx, now, draft, siteId);
             var currency = lines[0].Item.CurrencyCode;
             var totals = Totals(lines.Select(l => (l.Total, l.Discount, l.Item.TaxCode)), regime, currency);
             var payments = Settle(draft.Payments, totals.Total, draft.CustomerId, out var cashReceived, out var change);
@@ -77,7 +80,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
                 lines.Select(l => new SaleLine(l.Item.Id, l.Item.Sku, l.Quantity, l.UnitPrice, l.Discount, l.Total, l.Item.Name,
                     regime.IsTaxed(l.Item.TaxCode), TaxCategories.Normalize(l.Item.TaxCode), l.Presentation, l.ListPrice, l.PromotionId)).ToList(),
                 payments.Select(p => new SalePayment(p.Method, p.Amount)).ToList(), totals.Discount, Context.UserName,
-                string.IsNullOrWhiteSpace(draft.Coupon) ? null : draft.Coupon.Trim().ToUpperInvariant());
+                string.IsNullOrWhiteSpace(draft.Coupon) ? null : draft.Coupon.Trim().ToUpperInvariant(), priceList?.Id);
 
             await InsertSaleAsync(c, tx, completed, "local", session!.Id, now, cashReceived, change, payments);
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleCompleted, completed, subjectType: "sale", subjectId: number, id: saleId);
@@ -93,6 +96,25 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     }
 
     /// <summary>
+    /// Precio por unidad de cada artículo según la lista que rige (del cliente o de la tienda), para mostrarlo en el
+    /// catálogo de la caja. Solo devuelve los que la lista cambia.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, decimal>> ListPricesAsync(IEnumerable<ItemRow> items, Guid? customerId, Guid? siteId = null,
+        CancellationToken ct = default)
+    {
+        await using var c = await Db.OpenAsync(ct);
+        var session = await CashService.OpenSessionAsync(c, null);
+        var site = siteId ?? session?.SiteId ?? await DefaultSiteAsync(c, null) ?? Guid.Empty;
+        var result = new Dictionary<Guid, decimal>();
+        if (await PriceLists.ChooseAsync(c, null, Clock.GetUtcNow(), customerId, site) is not { } list)
+            return result;
+        foreach (var item in items.Where(i => i.CurrencyCode == list.CurrencyCode))
+            if (await PriceLists.PriceAsync(c, null, list.Id, item.Id, 1) is { } price && price != item.Price)
+                result[item.Id] = price;
+        return result;
+    }
+
+    /// <summary>
     /// La venta tal como se cobraría (promociones, cupón, descuentos y totales), sin guardarla. La caja la usa para
     /// mostrar el total: es el mismo cálculo del cobro.
     /// </summary>
@@ -103,12 +125,12 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         var session = await CashService.OpenSessionAsync(c, tx);
         var siteId = draft.SiteId ?? session?.SiteId ?? await DefaultSiteAsync(c, tx) ?? Guid.Empty;
         var regime = await TaxRegimeAsync(c, tx);
-        var (lines, applied, _) = await PriceAsync(c, tx, Clock.GetUtcNow(), draft, siteId, checkPermissions: false);
+        var (lines, applied, _, priceList) = await PriceAsync(c, tx, Clock.GetUtcNow(), draft, siteId, checkPermissions: false);
         var currency = lines.FirstOrDefault()?.Item.CurrencyCode ?? "PEN";
         return new SaleQuote(
             lines.Select(l => new QuoteLine(l.Item.Id, l.Presentation, l.UnitPrice, l.Quantity, l.Quantity * l.UnitPrice, l.PromotionDiscount,
-                l.PromotionName, l.ManualDiscount, l.TicketShare, l.Total)).ToList(),
-            applied, lines.Sum(l => l.TicketShare), Totals(lines.Select(l => (l.Total, l.Discount, l.Item.TaxCode)), regime, currency));
+                l.PromotionName, l.ManualDiscount, l.TicketShare, l.Total, l.RequestedPrice, l.BasePrice)).ToList(),
+            applied, lines.Sum(l => l.TicketShare), Totals(lines.Select(l => (l.Total, l.Discount, l.Item.TaxCode)), regime, currency), priceList);
     }
 
     /// <summary>
@@ -116,11 +138,13 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     /// promociones vigentes (<see cref="PromotionEngine"/>), el descuento manual de la línea (más del 10 % de lo que queda
     /// necesita permiso) y el descuento manual del ticket, repartido en proporción.
     /// </summary>
-    private async Task<(List<PricedLine> Lines, IReadOnlyList<PromotionEngine.Applied> Applied, List<string> PriceChanges)> PriceAsync(
+    private async Task<Priced> PriceAsync(
         SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, SaleDraft draft, Guid siteId, bool checkPermissions = true)
     {
-        var raw = new List<(ItemRow Item, decimal Quantity, decimal UnitPrice, decimal Manual, string? Presentation, decimal? ListPrice)>();
+        var raw = new List<(ItemRow Item, decimal Quantity, decimal UnitPrice, decimal Manual, string? Presentation, decimal? ListPrice,
+            decimal? Requested, decimal Base)>();
         var priceChanges = new List<string>();
+        var priceList = await PriceLists.ChooseAsync(c, tx, now, draft.CustomerId, siteId);
         foreach (var cart in draft.Lines.GroupBy(l => (l.ItemId, Presentation: Clean(l.Presentation), Price: l.UnitPrice)))
         {
             var item = await c.FirstOrDefaultAsync("SELECT i.*, NULL AS on_hand FROM items i WHERE i.id = $id AND i.is_deleted = 0",
@@ -130,21 +154,27 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             if (cart.Key.Presentation is { } presentation)
                 Require(await c.ScalarAsync<long>("SELECT COUNT(*) FROM item_presentations WHERE item_id = $id AND code = $code", tx,
                     ("$id", item.Id), ("$code", presentation)) > 0, T("error.la_presentacion_ya_no_existe", item.Name));
-            var unitPrice = cart.Key.Price ?? item.Price;
+            // Precio base: el de la lista (del cliente o de la tienda, en la moneda del artículo, con la escala de lo que se
+            // lleva del artículo en toda la venta) o el del artículo.
+            var basePrice = item.Price;
+            if (priceList is { } pl && pl.CurrencyCode == item.CurrencyCode &&
+                await PriceLists.PriceAsync(c, tx, pl.Id, item.Id, draft.Lines.Where(l => l.ItemId == item.Id).Sum(l => l.Quantity)) is { } fromList)
+                basePrice = fromList;
+            var unitPrice = cart.Key.Price ?? basePrice;
             Require(unitPrice >= 0, T("error.el_precio_no_puede_ser"));
-            // Cobrar a otro precio que el de lista es un cambio de precio: necesita permiso y queda en la auditoría.
-            decimal? listPrice = null;
-            if (unitPrice != item.Price)
+            // Cobrar a otro precio que el base es un cambio de precio: necesita permiso y queda en la auditoría.
+            decimal? listPrice = basePrice != item.Price ? basePrice : null;
+            if (unitPrice != basePrice)
             {
                 if (checkPermissions)
                     RequirePermission(PosPermissions.ChangePrice);
-                listPrice = item.Price;
-                priceChanges.Add($"{item.Name}: {item.Price:0.00} → {unitPrice:0.00}");
+                listPrice = basePrice;
+                priceChanges.Add($"{item.Name}: {basePrice:0.00} → {unitPrice:0.00}");
             }
-            raw.Add((item, cart.Sum(l => l.Quantity), unitPrice, cart.Sum(l => l.Discount), cart.Key.Presentation, listPrice));
+            raw.Add((item, cart.Sum(l => l.Quantity), unitPrice, cart.Sum(l => l.Discount), cart.Key.Presentation, listPrice, cart.Key.Price, basePrice));
         }
         if (raw.Count == 0)
-            return ([], [], priceChanges);
+            return new([], [], priceChanges, priceList);
 
         var currency = raw[0].Item.CurrencyCode;
         var money = Currencies.Get(currency);
@@ -182,9 +212,9 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             var discount = result.Discounts[i] + r.Manual + ticket[i];
             lines.Add(new PricedLine(r.Item, r.Quantity, r.UnitPrice, discount, LineTotal(r.Quantity, r.UnitPrice, discount, currency),
                 r.Presentation, r.ListPrice, promoLine ?? (result.Discounts[i] > 0 ? result.Applied.LastOrDefault()?.PromotionId : null),
-                result.Discounts[i], r.Manual, ticket[i], promoLine is { } id ? names.GetValueOrDefault(id) : null));
+                result.Discounts[i], r.Manual, ticket[i], promoLine is { } id ? names.GetValueOrDefault(id) : null, r.Requested, r.Base));
         }
-        return (lines, result.Applied, priceChanges);
+        return new(lines, result.Applied, priceChanges, priceList);
     }
 
     /// <summary>
@@ -517,13 +547,14 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         var lines = e.Lines ?? [];
         await c.ExecAsync("""
             INSERT INTO sales (id, number, origin, site_id, customer_id, cash_session_id, status, currency_code, subtotal, tax,
-                               discount, total, cash_received, change_given, created_at, user_name, coupon)
+                               discount, total, cash_received, change_given, created_at, user_name, coupon, price_list_id)
             VALUES ($id, $number, $origin, $site, $customer, $session, 'completed', $currency, $subtotal, $tax, $discount, $total,
-                    $received, $change, $at, $user, $coupon)
+                    $received, $change, $at, $user, $coupon, $priceList)
             """, tx, ("$id", e.SaleId), ("$number", e.Number ?? e.SaleId.ToString()[..8].ToUpperInvariant()), ("$origin", origin),
             ("$site", e.SiteId), ("$customer", e.CustomerId), ("$session", sessionId), ("$currency", e.CurrencyCode ?? "PEN"),
             ("$subtotal", e.Subtotal), ("$tax", e.Tax), ("$discount", e.Discount != 0 ? e.Discount : lines.Sum(l => l.Discount)),
-            ("$total", e.Total), ("$received", cashReceived), ("$change", change), ("$at", at), ("$user", e.CreatedBy), ("$coupon", e.Coupon));
+            ("$total", e.Total), ("$received", cashReceived), ("$change", change), ("$at", at), ("$user", e.CreatedBy), ("$coupon", e.Coupon),
+            ("$priceList", e.PriceListId));
 
         var lineNo = 0;
         foreach (var l in lines.Where(l => l.ItemId != Guid.Empty))

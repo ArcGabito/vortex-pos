@@ -20,6 +20,7 @@ Este documento resume qué hace el POS con cada dato y evento, y cómo conviven 
 | Sedes | Tiendas donde está cada caja | Alta (`PUT /api/master/sites/{id}`) |
 | Clientes | Cliente opcional de la venta (obligatorio al crédito) | Alta (`PUT /api/master/parties/{id}`) |
 | Empresa | Moneda | No |
+| Listas de precios | Precio de la lista del cliente (`credit.priceListId`) o de la tienda (`siteIds`), con escalas | No (las maneja el ERP) |
 
 La copia local solo se actualiza desde el feed, por `id` y `version`. Un alta hecha en el POS queda **POR ENVIAR**
 hasta que vuelve por el feed; si el hub la rechaza aparece en **Configuración → Rechazadas por el hub**.
@@ -65,7 +66,8 @@ aplicado a la venta (sin el vuelto). Desde la fase 3a cada línea puede traer `p
 del artículo con que se vendió; `quantity` sigue en la unidad del artículo: una caja de 12 son 12) y `listPrice` (el
 precio de lista cuando la caja cobró otro con permiso). Ambos son opcionales y aditivos. Desde la 3b la venta trae `coupon` (el
 cupón usado) y cada línea `promotionId` (la promoción que le dio descuento; `discount` ya incluye promociones y
-descuentos manuales).
+descuentos manuales). Desde la 3c trae `priceListId` (la lista de precios que rigió, si hubo) y `listPrice` lleva el
+precio de esa lista cuando difiere del precio del artículo.
 
 ### Qué consume el POS
 

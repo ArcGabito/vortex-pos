@@ -489,6 +489,7 @@
   "register.precio_de_lista": "Preço de tabela: {0}",
   "register.precio_lo_autoriza": "Ao cobrar, um supervisor autoriza com o PIN.",
   "register.precio_unitario": "Preço unitário ({0})",
+  "register.precios_de_la_lista": "Tabela de preços: {0}",
   "register.promocion": "Promoção",
   "register.puedes_combinar_medios_de_pago": "Você pode combinar meios de pagamento.",
   "register.quitar": "Remover",

@@ -489,6 +489,7 @@
   "register.precio_de_lista": "List price: {0}",
   "register.precio_lo_autoriza": "When charging, a supervisor approves it with their PIN.",
   "register.precio_unitario": "Unit price ({0})",
+  "register.precios_de_la_lista": "Price list: {0}",
   "register.promocion": "Promotion",
   "register.puedes_combinar_medios_de_pago": "You can combine payment methods.",
   "register.quitar": "Remove",

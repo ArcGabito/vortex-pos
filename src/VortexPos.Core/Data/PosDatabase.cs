@@ -175,5 +175,18 @@ internal static class Schema
         CREATE INDEX ix_sales_coupon ON sales (coupon);
         ALTER TABLE sale_lines ADD COLUMN promotion_id TEXT;
         """,
+        // 6: listas de precios (fase 3c). Copia de las listas del hub (price_list) con sus escalas; la lista de cada
+        // cliente (credit.priceListId) y la que rigió cada venta.
+        """
+        CREATE TABLE price_lists (
+            id TEXT PRIMARY KEY, code TEXT NOT NULL, name TEXT NOT NULL, currency_code TEXT NOT NULL, valid_from TEXT, valid_to TEXT,
+            site_ids TEXT NOT NULL DEFAULT '[]', is_active INTEGER NOT NULL, is_deleted INTEGER NOT NULL DEFAULT 0,
+            version INTEGER NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE price_list_lines (
+            list_id TEXT NOT NULL, item_id TEXT NOT NULL, min_qty REAL NOT NULL, price REAL NOT NULL,
+            PRIMARY KEY (list_id, item_id, min_qty));
+        ALTER TABLE parties ADD COLUMN price_list_id TEXT;
+        ALTER TABLE sales ADD COLUMN price_list_id TEXT;
+        """,
     ];
 }
