@@ -57,7 +57,8 @@ de cada tienda (texto del ticket, ancho del papel, cierre ciego, cajón) la comp
 |---|---|---|
 | `sale.completed` | Al cobrar | Id de la venta |
 | `sale.voided` | Al anular una venta sin devoluciones | `DeterministicId("sale_void", saleId)` |
-| `sale.returned` | Al registrar una devolución (parcial o total) | Id de la devolución |
+| `sale.returned` | Al registrar una devolución (parcial o total) o un cambio. Agrega `refundMethod` (medio del reembolso; `exchange` en un cambio) y `exchangeSaleId`; sin ticket, `saleId` vacío | Id de la devolución |
+| `cash.deposited` | Al registrar un depósito de caja en el banco: `{ depositId, siteId, amount, currencyCode, reference, bank, depositedOn, sessionId, userName }` | Id del movimiento de caja |
 | `pos.record.upserted` | Al guardar la configuración de una tienda (solo la leen las otras cajas del POS) | Nuevo en cada cambio |
 
 `sale.completed` lleva el formato v1 (`saleId`, `number`, `siteId`, `customerId`, `subtotal`, `tax`, `total`, `lines`,

@@ -218,7 +218,7 @@
 
 @if (_returning is { } rt)
 {
-    <Modal Title="@(T("sales.devolucion_de", rt.Number))" Subtitle="@(T("sales.el_reembolso_sale_en_efectivo"))" Error="@_error" OnClose="() => _returning = null">
+    <Modal Title="@(_exchange ? T("sales.cambio_de", rt.Number) : T("sales.devolucion_de", rt.Number))" Subtitle="@(_exchange ? T("sales.cambio_explica") : T("sales.reembolso_explica"))" Size="lg" Error="@_error" OnClose="() => _returning = null">
         <ChildContent>
             @foreach (var line in _returnLines.Where(l => l.Line.Returnable > 0))
             {
@@ -230,22 +230,136 @@
                     <input class="control" style="width:110px" type="number" min="0" max="@line.Line.Returnable" step="any" @bind="line.Quantity" @bind:event="oninput" aria-label="@(T("sales.cantidad_devolver"))" />
                 </div>
             }
-            <div class="field">
-                <label>@T("sales.motivo")</label>
-                <input class="control" placeholder="@(T("sales.producto_danado_cambio"))" @bind="_reason" />
+            <div class="segmented" style="align-self:flex-start">
+                <button class="@(!_exchange ? "on" : "")" @onclick="() => _exchange = false">@T("sales.solo_devolver")</button>
+                <button class="@(_exchange ? "on" : "")" @onclick="() => _exchange = true">@T("sales.cambiar_por_otro")</button>
+            </div>
+            @if (_exchange)
+            {
+                <ItemPicker SiteId="rt.SiteId" OnSelected="AddExchangeItemAsync" />
+                @foreach (var n in _newLines)
+                {
+                    <div class="list-row" @key="n.Item.Id">
+                        <span class="t1" style="flex:1">@n.Item.Name</span>
+                        <input class="control" style="width:90px" type="number" min="0" step="any" @bind="n.Quantity" @bind:after="QuoteExchangeAsync" aria-label="@(T("sales.cantidad"))" />
+                        <button class="btn btn-ghost icon-btn sm" @onclick="() => RemoveExchangeItemAsync(n)" aria-label="@(T("sales.quitar"))"><Icon Name="x" Size="16" /></button>
+                    </div>
+                }
+            }
+            <div class="form-row">
+                <div class="field">
+                    <label>@T("sales.motivo")</label>
+                    <input class="control" placeholder="@(T("sales.producto_danado_cambio"))" @bind="_reason" />
+                </div>
+                <div class="field">
+                    <label>@(_exchange ? T("sales.diferencia_a_favor_por") : T("sales.reembolsar_por"))</label>
+                    <select class="select" @bind="_refundMethod">
+                        <option value="">@T("sales.medio_original")</option>
+                        @foreach (var m in PaymentMethods.All.Where(m => m != PaymentMethods.Credit))
+                        {
+                            <option value="@m">@Fmt.PaymentMethod(m)</option>
+                        }
+                    </select>
+                </div>
             </div>
             <dl class="totals">
-                <dt class="grand">@T("sales.devolver")</dt><dd class="grand">@Fmt.Money(ReturnTotal, rt.CurrencyCode)</dd>
+                <dt>@T("sales.devolver")</dt><dd>@Fmt.Money(ReturnTotal, rt.CurrencyCode)</dd>
+                @if (_exchange)
+                {
+                    <dt>@T("sales.se_lleva")</dt><dd>@Fmt.Money(_newTotal, rt.CurrencyCode)</dd>
+                    @if (_newTotal > ReturnTotal)
+                    {
+                        <dt class="grand">@T("sales.paga")</dt><dd class="grand">@Fmt.Money(_newTotal - ReturnTotal, rt.CurrencyCode)</dd>
+                    }
+                    else
+                    {
+                        <dt class="grand">@T("sales.se_le_devuelve")</dt><dd class="grand">@Fmt.Money(ReturnTotal - _newTotal, rt.CurrencyCode)</dd>
+                    }
+                }
             </dl>
+            @if (_exchange && _newTotal > ReturnTotal)
+            {
+                <div class="field">
+                    <label>@T("sales.paga_con")</label>
+                    <select class="select" @bind="_payMethod">
+                        @foreach (var m in PaymentMethods.All.Where(m => m != PaymentMethods.Credit || rt.CustomerId is not null))
+                        {
+                            <option value="@m">@Fmt.PaymentMethod(m)</option>
+                        }
+                    </select>
+                </div>
+            }
         </ChildContent>
         <Footer>
             <button class="btn" @onclick="() => _returning = null">@T("sales.cancelar")</button>
-            <button class="btn btn-dark" disabled="@(_busy || ReturnTotal <= 0)" @onclick="ReturnAsync">@T("sales.registrar_devolucion")</button>
+            @if (_exchange)
+            {
+                <button class="btn btn-dark" disabled="@(_busy || ReturnTotal <= 0 || _newLines.All(n => n.Quantity <= 0))" @onclick="ExchangeAsync">@T("sales.registrar_cambio")</button>
+            }
+            else
+            {
+                <button class="btn btn-dark" disabled="@(_busy || ReturnTotal <= 0)" @onclick="ReturnAsync">@T("sales.registrar_devolucion")</button>
+            }
         </Footer>
     </Modal>
 }
 
 @code {
+    private sealed class ExchangeLine
+    {
+        public required ItemRow Item { get; init; }
+        public decimal Quantity { get; set; } = 1;
+    }
+
+    private bool _exchange;
+    private List<ExchangeLine> _newLines = [];
+    private decimal _newTotal;
+    private string _refundMethod = "", _payMethod = PaymentMethods.Cash;
+
+    private async Task AddExchangeItemAsync(ItemRow item)
+    {
+        if (_newLines.FirstOrDefault(n => n.Item.Id == item.Id) is { } existing)
+            existing.Quantity++;
+        else
+            _newLines.Add(new ExchangeLine { Item = item });
+        await QuoteExchangeAsync();
+    }
+
+    private async Task RemoveExchangeItemAsync(ExchangeLine line)
+    {
+        _newLines.Remove(line);
+        await QuoteExchangeAsync();
+    }
+
+    /// <summary>Lo que cuesta lo nuevo con los precios, listas y promociones de la caja.</summary>
+    private async Task QuoteExchangeAsync()
+    {
+        var lines = _newLines.Where(n => n.Quantity > 0).Select(n => new CartLine(n.Item.Id, n.Quantity)).ToList();
+        _newTotal = lines.Count == 0 ? 0 : (await Pos.Sales.QuoteAsync(new SaleDraft(lines, [], _returning?.CustomerId))).Totals.Total;
+    }
+
+    private async Task ExchangeAsync()
+    {
+        if (_returning is not { } sale)
+            return;
+        var lines = _returnLines.Where(l => l.Quantity > 0).Select(l => new ReturnLine(l.Line.LineNo, l.Quantity)).ToList();
+        var newLines = _newLines.Where(n => n.Quantity > 0).Select(n => new CartLine(n.Item.Id, n.Quantity)).ToList();
+        var difference = _newTotal - ReturnTotal;
+        var payments = difference > 0 ? new List<PaymentDraft> { new(_payMethod, difference) } : [];
+        _busy = true;
+        ExchangeReceipt? receipt = null;
+        _error = await TryAsync(async () => receipt = await Pos.Sales.ExchangeAsync(sale.Id, lines, new SaleDraft(newLines, payments, sale.CustomerId),
+            _reason, string.IsNullOrEmpty(_refundMethod) ? null : _refundMethod));
+        _busy = false;
+        if (_error is null && receipt is not null)
+        {
+            Toasts.Success(receipt.Refund > 0
+                ? T("sales.cambio_registrado_devolver", receipt.Sale.Number, Fmt.Money(receipt.Refund, sale.CurrencyCode))
+                : T("sales.cambio_registrado", receipt.Sale.Number));
+            _returning = null;
+        }
+    }
+
     private sealed class ReturnDraft
     {
         public required SaleLineRow Line { get; init; }
@@ -348,6 +462,7 @@
         _error = null;
         _reason = "";
         _returnLines = (await Pos.Sales.GetLinesAsync(sale.Id)).Select(l => new ReturnDraft { Line = l }).ToList();
+        (_exchange, _newLines, _newTotal, _refundMethod, _payMethod) = (false, [], 0, "", PaymentMethods.Cash);
         _detail = null;
         _returning = sale;
     }
@@ -359,11 +474,12 @@
         var lines = _returnLines.Where(l => l.Quantity > 0).Select(l => new ReturnLine(l.Line.LineNo, l.Quantity)).ToList();
         _busy = true;
         string? number = null;
-        _error = await TryAsync(async () => number = await Pos.Sales.ReturnAsync(sale.Id, lines, _reason));
+        _error = await TryAsync(async () => number = await Pos.Sales.ReturnAsync(sale.Id, lines, _reason,
+            string.IsNullOrEmpty(_refundMethod) ? null : _refundMethod));
         _busy = false;
         if (_error is null)
         {
-            Toasts.Success(T("sales.devolucion_registrada_entrega_en_efectivo", number, (Fmt.Money(ReturnTotal, sale.CurrencyCode))));
+            Toasts.Success(T("sales.devolucion_registrada", number, Fmt.Money(ReturnTotal, sale.CurrencyCode)));
             _returning = null;
         }
     }

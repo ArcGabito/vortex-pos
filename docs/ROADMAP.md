@@ -69,9 +69,9 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 |---|---|---|---|
 | POS-40 | Anulación con permiso y auditoría | Hecho | 1 |
 | POS-41 | Devolución parcial con reembolso en efectivo | Hecho | — |
-| POS-42 | Cambios (devolver y llevar otro en la misma operación) | Pendiente | 4 |
-| POS-43 | Reembolso al medio de pago original | Pendiente | 4 |
-| POS-44 | Política de devoluciones (plazo, sin ticket solo con supervisor) | Pendiente | 4 |
+| POS-42 | Cambios (devolver y llevar otro en la misma operación) | Hecho | 4a |
+| POS-43 | Reembolso al medio de pago original | Hecho | 4a |
+| POS-44 | Política de devoluciones (plazo, sin ticket solo con supervisor) | Hecho | 4a |
 
 ### Clientes
 
@@ -79,7 +79,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 |---|---|---|---|
 | POS-50 | Cliente del hub en la venta | Hecho | — |
 | POS-51 | Alta rápida de cliente en caja con documento | Pendiente | 4 |
-| POS-52 | Historial del cliente en caja | Pendiente | 4 |
+| POS-52 | Historial del cliente en caja | Hecho | 4a |
 | POS-53 | Programa de puntos (acumular y canjear) | Pendiente | 4 |
 | POS-54 | Cuenta corriente con límite de crédito | Pendiente | 4 |
 | POS-55 | Apartados (separar con adelanto) | Pendiente | 4 |
@@ -262,6 +262,18 @@ límite configurable y al reconectar se concilia; ver decisión 2.
 **Terminado cuando:** un cambio de talla genera la devolución y la nueva venta en una operación; los puntos ganados en
 una tienda se canjean en otra; una gift card no se puede gastar dos veces aunque dos cajas estén sin red (dentro del
 límite definido).
+
+**Estado 4a (2026-11):** hecha la parte de postventa. **Cambios**: en la devolución se elige "Cambiar por otro", se
+agregan los artículos nuevos y en una sola operación se registran la devolución y la venta nueva; lo devuelto paga lo
+nuevo (pago `exchange` en `sale.completed`), el cliente paga la diferencia o se le devuelve por el medio original.
+**Reembolso al medio original**: si la venta se pagó con un solo medio vuelve por ese (o por el que se elija); solo el
+efectivo sale del cajón (`sale.returned` lleva `refundMethod` y, en un cambio, `exchangeSaleId`). **Política**: plazo de
+devolución por tienda (30 días por defecto); dentro del plazo devuelve el cajero, fuera de él o sin ticket solo un
+supervisor (en la caja, con su PIN). La devolución sin ticket viaja con `saleId` vacío. **Historial del cliente** en la
+caja al elegirlo: compras en todas las tiendas, total, la última y lo que suele llevar. Además, **depósito de caja** en
+el banco (con banco y n.º de operación) que se publica como `cash.deposited` para la tesorería del ERP (ERP-39). Pruebas
+en `PostSaleTests`. Queda para 4b: alta rápida de cliente en caja, puntos, cuenta corriente, apartados, gift cards y
+consentimientos (decisión 2: libro de movimientos replicado con límite sin red, saldo oficial en el hub).
 
 ## Fase 5: pagos y comprobante fiscal · L
 

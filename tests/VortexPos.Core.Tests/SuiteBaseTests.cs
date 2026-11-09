@@ -52,7 +52,7 @@ public sealed class SuiteBaseTests
     }
 
     [Fact]
-    public async Task Un_cajero_vende_pero_no_anula_ni_devuelve_ni_cierra_la_caja()
+    public async Task Un_cajero_vende_y_devuelve_en_plazo_pero_no_anula_ni_devuelve_sin_ticket_ni_cierra_la_caja()
     {
         var t = new TestWorkspace(role: PosPermissions.Cashier);
         await t.InitializeAsync();
@@ -63,7 +63,8 @@ public sealed class SuiteBaseTests
 
             var ex = await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Sales.VoidAsync(sale.SaleId, "Error"));
             Assert.Contains("Tu rol (cajero) no permite anular ventas", ex.Message);
-            await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Sales.ReturnAsync(sale.SaleId, [new ReturnLine(1, 1)], null));
+            // Desde la fase 4a el cajero devuelve dentro del plazo de la tienda; sin ticket (o fuera de plazo) necesita un supervisor.
+            await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Sales.ReturnWithoutReceiptAsync([new CartLine(t.Coffee, 1)], "Sin ticket"));
             await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Cash.CloseAsync(session, 100, null));
             await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Audit.GetAsync(1, 10));
             await Assert.ThrowsAnyAsync<PosValidationException>(() => t.Pos.Master.CreateItemAsync(

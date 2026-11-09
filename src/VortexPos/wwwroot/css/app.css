@@ -1501,3 +1501,5 @@ table.data .strong { font-weight: 700; color: var(--ink); }
 /* Lista de precios que rige la venta (fase 3c). */
 .price-list-hint { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; color: var(--accent, var(--text-2)); font-weight: 600; }
 .cart-line s { margin-right: 6px; }
+
+.customer-history { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

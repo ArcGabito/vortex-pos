@@ -3,6 +3,8 @@ using Microsoft.Data.Sqlite;
 using VortexApi.Suite.Auditing;
 using VortexPos.Core.Data;
 using VortexPos.Core.Domain;
+using VortexPos.Core.Integration;
+using VortexPos.Core.Sync;
 
 using static VortexPos.Core.Texts.CoreText;
 
@@ -58,17 +60,22 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
     // ---------- Ingresos y retiros ----------
 
     /// <summary>Registra efectivo que entra o sale del cajón durante el turno. El motivo es obligatorio.</summary>
-    public Task<Guid> AddMovementAsync(string kind, decimal amount, string reason, CancellationToken ct = default)
+    public Task<Guid> AddMovementAsync(string kind, decimal amount, string reason, CancellationToken ct = default) =>
+        AddMovementAsync(kind, amount, reason, null, null, ct);
+
+    /// <param name="reference">En un depósito, el número de operación del banco (para conciliarlo en el ERP).</param>
+    /// <param name="bank">En un depósito, el banco.</param>
+    public Task<Guid> AddMovementAsync(string kind, decimal amount, string reason, string? reference, string? bank, CancellationToken ct = default)
     {
         RequirePermission(PosPermissions.CashMovement);
-        Require(kind is CashMovementKinds.In or CashMovementKinds.Out, T("error.movimiento_desconocido"));
+        Require(kind is CashMovementKinds.In or CashMovementKinds.Out or CashMovementKinds.Deposit, T("error.movimiento_desconocido"));
         Require(amount > 0, T("error.el_monto_debe_ser_mayor"));
         Require(!string.IsNullOrWhiteSpace(reason), T("error.escribe_el_motivo_del_movimiento"));
         return InTransactionAsync(async (c, tx, now) =>
         {
             var session = await OpenSessionAsync(c, tx);
             Require(session is not null, T("error.abre_la_caja_antes_de"));
-            if (kind == CashMovementKinds.Out)
+            if (kind is CashMovementKinds.Out or CashMovementKinds.Deposit)
             {
                 var available = (await SummaryAsync(c, tx, session!.Id)).ExpectedCash;
                 Require(amount <= available, T("error.no_hay_tanto_efectivo", available));
@@ -76,12 +83,20 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
 
             var id = Guid.NewGuid();
             await c.ExecAsync("""
-                INSERT INTO cash_movements (id, cash_session_id, kind, amount, reason, created_at, user_name)
-                VALUES ($id, $session, $kind, $amount, $reason, $now, $user)
+                INSERT INTO cash_movements (id, cash_session_id, kind, amount, reason, created_at, user_name, reference, bank)
+                VALUES ($id, $session, $kind, $amount, $reason, $now, $user, $ref, $bank)
                 """, tx, ("$id", id), ("$session", session!.Id), ("$kind", kind), ("$amount", amount), ("$reason", reason.Trim()),
-                ("$now", now), ("$user", Context.UserName));
+                ("$now", now), ("$user", Context.UserName), ("$ref", Clean(reference)), ("$bank", Clean(bank)));
+            if (kind == CashMovementKinds.Deposit)
+            {
+                var currency = await c.ScalarAsync<string?>("SELECT currency_code FROM company WHERE id = 1", tx) ?? "PEN";
+                await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.CashDeposited,
+                    new CashDeposited(id, session.SiteId, amount, currency, Clean(reference), Clean(bank),
+                        DateOnly.FromDateTime(now.ToOffset(PosClock.Offset).DateTime), session.Id, Context.UserName),
+                    subjectType: "cash_session", subjectId: session.Number, id: id);
+            }
             await AuditAsync(c, tx, now, MovementAudit, "cash_session", session.Id, session.Number,
-                $"{(kind == CashMovementKinds.In ? "Ingreso" : "Retiro")} de {amount:0.##}: {reason.Trim()}");
+                $"{(kind == CashMovementKinds.In ? "Ingreso" : kind == CashMovementKinds.Deposit ? "Depósito" : "Retiro")} de {amount:0.##}: {reason.Trim()}");
             return id;
         }, ct);
     }
@@ -201,14 +216,14 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
             """, r => (Method: r.Str("method"), Amount: r.Dec("amount")), tx, ("$id", sessionId)))
             .ToDictionary(x => x.Method, x => x.Amount);
         var refunds = await c.ScalarAsync<decimal>(
-            "SELECT COALESCE(SUM(total), 0) FROM sale_returns WHERE cash_session_id = $id", tx, ("$id", sessionId));
+            "SELECT COALESCE(SUM(COALESCE(cash_refund, total)), 0) FROM sale_returns WHERE cash_session_id = $id", tx, ("$id", sessionId));
         var sales = await c.QueryAsync("SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS t FROM sales WHERE cash_session_id = $id AND status = 'completed'",
             r => (Count: r.Int("n"), Total: r.Dec("t")), tx, ("$id", sessionId));
         var movements = (await c.QueryAsync(
             "SELECT kind, COALESCE(SUM(amount), 0) AS amount FROM cash_movements WHERE cash_session_id = $id GROUP BY kind",
             r => (Kind: r.Str("kind"), Amount: r.Dec("amount")), tx, ("$id", sessionId))).ToDictionary(x => x.Kind, x => x.Amount);
         var cashIn = movements.GetValueOrDefault(CashMovementKinds.In);
-        var cashOut = movements.GetValueOrDefault(CashMovementKinds.Out);
+        var cashOut = movements.GetValueOrDefault(CashMovementKinds.Out) + movements.GetValueOrDefault(CashMovementKinds.Deposit);
         var cash = byMethod.GetValueOrDefault(PaymentMethods.Cash);
         return new CashSummary(opening, cash, refunds, opening + cash - refunds + cashIn - cashOut, byMethod, sales[0].Count,
             sales[0].Total, cashIn, cashOut);
