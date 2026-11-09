@@ -46,12 +46,15 @@ public static class PosPermissions
     /// <summary>Descuento máximo de un cajero: 10 % del importe de la línea.</summary>
     public const decimal CashierDiscountLimit = 0.10m;
 
+    /// <summary>Devolver fuera del plazo de la política o sin ticket.</summary>
+    public const string ReturnOverride = "sale.return_override";
+
     public const string Cashier = "cajero";
     public const string Supervisor = "supervisor";
 
     public static readonly PermissionMatrix Matrix = PermissionMatrix.Create(Cashier,
-        (Cashier, [Sell, OpenCash, CreateCustomer]),
-        (Supervisor, [Sell, OpenCash, CreateCustomer, DiscountUnlimited, ChangePrice, ManagePromotions, Void, Return, CloseCash, ViewAudit, CashMovement, CashReport,
+        (Cashier, [Sell, OpenCash, CreateCustomer, Return]),
+        (Supervisor, [Sell, OpenCash, CreateCustomer, DiscountUnlimited, ChangePrice, ManagePromotions, Void, Return, ReturnOverride, CloseCash, ViewAudit, CashMovement, CashReport,
             StoreSettings]));
 
     public static string Describe(string permission) => permission switch
@@ -62,6 +65,7 @@ public static class PosPermissions
         ManagePromotions => T("permiso.managepromotions"),
         Void => T("permiso.void"),
         Return => T("permiso.return"),
+        ReturnOverride => T("permiso.returnoverride"),
         OpenCash => T("permiso.opencash"),
         CloseCash => T("permiso.closecash"),
         CreateCustomer => T("permiso.createcustomer"),

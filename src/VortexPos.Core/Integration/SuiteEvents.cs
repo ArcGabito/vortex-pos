@@ -11,6 +11,9 @@ public static class SuiteEvents
     public const string SaleVoided = "sale.voided";
     public const string SaleReturned = "sale.returned";
 
+    /// <summary>Efectivo de una caja depositado en el banco (lo concilia la tesorería del ERP).</summary>
+    public const string CashDeposited = "cash.deposited";
+
     // Replicación interna entre las cajas de una organización
     public const string PosRecordUpserted = "pos.record.upserted";
 
@@ -40,9 +43,16 @@ public sealed record SalePayment(string Method, decimal Amount);
 public sealed record SaleVoided(Guid SaleId, string? Number, string? Reason);
 
 /// <summary><c>sale.returned</c>. Extiende v1 con <c>number</c> y <c>reason</c>.</summary>
+/// <param name="SaleId">La venta devuelta; <see cref="Guid.Empty"/> en una devolución sin ticket.</param>
+/// <param name="RefundMethod">Cómo se devolvió el dinero (<c>cash</c>, <c>card</c>…; <c>exchange</c> en un cambio).</param>
+/// <param name="ExchangeSaleId">En un cambio, la venta de lo que se llevó.</param>
 public sealed record SaleReturned(
     Guid SaleId, Guid ReturnId, Guid SiteId, IReadOnlyList<SaleReturnLine> Lines, decimal Total, string? Number = null,
-    string? Reason = null);
+    string? Reason = null, string? RefundMethod = null, Guid? ExchangeSaleId = null);
+
+/// <summary><c>cash.deposited</c>: efectivo que sale de la caja para el banco.</summary>
+public sealed record CashDeposited(Guid DepositId, Guid SiteId, decimal Amount, string CurrencyCode, string? Reference, string? Bank,
+    DateOnly DepositedOn, Guid? SessionId, string? UserName);
 
 public sealed record SaleReturnLine(Guid ItemId, decimal Quantity, decimal Total);
 

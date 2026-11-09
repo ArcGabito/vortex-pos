@@ -92,6 +92,9 @@ public static class PaymentMethods
     public const string Credit = "credit";
 
     public static readonly string[] All = [Cash, Card, Wallet, Transfer, Credit];
+
+    /// <summary>Crédito de un cambio: lo que vale lo devuelto paga (en parte) lo que se lleva. Solo lo usa <c>ExchangeAsync</c>.</summary>
+    public const string Exchange = "exchange";
 }
 
 public static class SaleStatuses
@@ -195,8 +198,11 @@ public static class CashMovementKinds
     /// <summary>Entra efectivo al cajón (cambio, sencillo traído del banco).</summary>
     public const string In = "in";
 
-    /// <summary>Sale efectivo del cajón (pago a un proveedor, retiro a la caja fuerte, depósito).</summary>
+    /// <summary>Sale efectivo del cajón (pago a un proveedor, retiro a la caja fuerte).</summary>
     public const string Out = "out";
+
+    /// <summary>Sale efectivo del cajón para depositarlo en el banco: se informa a la tesorería del ERP (<c>cash.deposited</c>).</summary>
+    public const string Deposit = "deposit";
 }
 
 public sealed record CashMovementRow(Guid Id, string Kind, decimal Amount, string Reason, DateTimeOffset CreatedAt, string? UserName);
@@ -239,7 +245,7 @@ public sealed record HeldSale(Guid Id, string? Label, Guid? CustomerId, IReadOnl
 public sealed record StoreSettings(
     string? TicketHeader = null, string? TicketFooter = null, int PaperColumns = 48, bool BlindClose = false,
     bool PrintAutomatically = true, bool OpenDrawerOnCash = true, bool ScaleLabels = false,
-    string ScaleLabelMode = ScaleLabel.Weight, int ScaleItemDigits = 5)
+    string ScaleLabelMode = ScaleLabel.Weight, int ScaleItemDigits = 5, int ReturnDays = 30)
 {
     public static StoreSettings Default { get; } = new();
 }
@@ -251,3 +257,10 @@ public sealed record TopItem(Guid ItemId, string Name, string? Sku, decimal Quan
 public sealed record DashboardSummary(
     decimal SalesToday, int TicketsToday, decimal? SalesChangePct, decimal AverageTicket, decimal Sales7d, int Voided7d,
     IReadOnlyDictionary<string, decimal> ByMethodToday, string CurrencyCode);
+
+/// <summary>Lo que compró un cliente en todas las tiendas (las ventas de las otras cajas llegan por la sincronización).</summary>
+public sealed record CustomerHistory(Guid CustomerId, int Purchases, decimal Total, string CurrencyCode, DateTimeOffset? LastPurchase,
+    decimal Returned, IReadOnlyList<SaleRow> Recent, IReadOnlyList<TopItem> TopItems);
+
+/// <summary>Resultado de un cambio: la devolución, la venta nueva y cuánto paga o recibe el cliente.</summary>
+public sealed record ExchangeReceipt(string ReturnNumber, SaleReceipt Sale, decimal Credit, decimal Refund);

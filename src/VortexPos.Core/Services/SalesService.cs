@@ -50,20 +50,33 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
 
     public Task<SaleReceipt> CheckoutAsync(SaleDraft draft, CancellationToken ct = default)
     {
-        RequirePermission(PosPermissions.Sell);
-        Require(draft.Lines.Count > 0, T("error.agrega_al_menos_un_articulo"));
-        Require(draft.Lines.All(l => l.Quantity > 0), T("error.las_cantidades_deben_ser_mayores"));
-        Require(draft.Lines.All(l => l.Discount >= 0), T("error.el_descuento_no_puede_ser"));
-        Require(draft.Payments.Count > 0, T("error.elige_como_paga_el_cliente"));
-        Require(draft.Payments.All(p => PaymentMethods.All.Contains(p.Method)), T("error.medio_de_pago_desconocido"));
-        Require(draft.Payments.All(p => p.Amount > 0), T("error.los_montos_de_pago_deben"));
-        Require(draft.Payments.Count(p => p.Method == PaymentMethods.Cash) <= 1, T("error.registra_el_efectivo_en_un"));
-
+        ValidateDraft(draft, paymentsRequired: true);
         return InTransactionAsync(async (c, tx, now) =>
         {
             var session = await CashService.OpenSessionAsync(c, tx);
             Require(session is not null, T("error.abre_la_caja_antes_de"));
-            var siteId = draft.SiteId ?? session!.SiteId;
+            return await CheckoutCoreAsync(c, tx, now, session!, draft, null, null);
+        }, ct);
+    }
+
+    private void ValidateDraft(SaleDraft draft, bool paymentsRequired)
+    {
+        RequirePermission(PosPermissions.Sell);
+        Require(draft.Lines.Count > 0, T("error.agrega_al_menos_un_articulo"));
+        Require(draft.Lines.All(l => l.Quantity > 0), T("error.las_cantidades_deben_ser_mayores"));
+        Require(draft.Lines.All(l => l.Discount >= 0), T("error.el_descuento_no_puede_ser"));
+        Require(!paymentsRequired || draft.Payments.Count > 0, T("error.elige_como_paga_el_cliente"));
+        Require(draft.Payments.All(p => PaymentMethods.All.Contains(p.Method)), T("error.medio_de_pago_desconocido"));
+        Require(draft.Payments.All(p => p.Amount > 0), T("error.los_montos_de_pago_deben"));
+        Require(draft.Payments.Count(p => p.Method == PaymentMethods.Cash) <= 1, T("error.registra_el_efectivo_en_un"));
+    }
+
+    /// <summary>La venta en la transacción de quien llama. <paramref name="exchangeCredit"/>: lo que vale lo devuelto en un cambio.</summary>
+    private async Task<SaleReceipt> CheckoutCoreAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, CashSessionRow session,
+        SaleDraft draft, decimal? exchangeCredit, Guid? id)
+    {
+        {
+            var siteId = draft.SiteId ?? session.SiteId;
             if (draft.CustomerId is { } customer)
                 Require(await c.ScalarAsync<long>("SELECT COUNT(*) FROM parties WHERE id = $id AND is_deleted = 0", tx, ("$id", customer)) > 0,
                     T("error.el_cliente_no_existe"));
@@ -72,9 +85,12 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             var (lines, applied, priceChanges, priceList) = await PriceAsync(c, tx, now, draft, siteId);
             var currency = lines[0].Item.CurrencyCode;
             var totals = Totals(lines.Select(l => (l.Total, l.Discount, l.Item.TaxCode)), regime, currency);
-            var payments = Settle(draft.Payments, totals.Total, draft.CustomerId, out var cashReceived, out var change);
+            var drafts = draft.Payments.ToList();
+            if (exchangeCredit is > 0 and var credit)
+                drafts.Insert(0, new PaymentDraft(PaymentMethods.Exchange, Math.Min(credit, totals.Total)));
+            var payments = Settle(drafts, totals.Total, draft.CustomerId, out var cashReceived, out var change);
 
-            var saleId = Guid.NewGuid();
+            var saleId = id ?? Guid.NewGuid();
             var number = await DocumentNumbers.NextAsync(c, tx, DocumentNumbers.Sale, Context.DeviceTag);
             var completed = new SaleCompleted(saleId, number, siteId, draft.CustomerId, currency, totals.Subtotal, totals.Tax, totals.Total,
                 lines.Select(l => new SaleLine(l.Item.Id, l.Item.Sku, l.Quantity, l.UnitPrice, l.Discount, l.Total, l.Item.Name,
@@ -82,7 +98,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
                 payments.Select(p => new SalePayment(p.Method, p.Amount)).ToList(), totals.Discount, Context.UserName,
                 string.IsNullOrWhiteSpace(draft.Coupon) ? null : draft.Coupon.Trim().ToUpperInvariant(), priceList?.Id);
 
-            await InsertSaleAsync(c, tx, completed, "local", session!.Id, now, cashReceived, change, payments);
+            await InsertSaleAsync(c, tx, completed, "local", session.Id, now, cashReceived, change, payments);
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleCompleted, completed, subjectType: "sale", subjectId: number, id: saleId);
             if (totals.Discount > 0)
                 await AuditAsync(c, tx, now, AuditActions.Discount, "sale", saleId, number, $"Descuentos por {totals.Discount:0.##} {currency}");
@@ -92,7 +108,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
                 await AuditAsync(c, tx, now, "promotion.applied", "sale", saleId, number,
                     string.Join("; ", applied.Select(a => $"{a.Name} −{a.Amount:0.00}")) + (completed.Coupon is { } cup ? $" · cupón {cup}" : ""));
             return new SaleReceipt(saleId, number, totals.Total, change);
-        }, ct);
+        }
     }
 
     /// <summary>
@@ -333,40 +349,162 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         }, ct);
     }
 
-    /// <summary>Devuelve parte o todo de una venta. El reembolso sale en efectivo de la caja abierta.</summary>
-    public Task<string> ReturnAsync(Guid saleId, IReadOnlyList<ReturnLine> lines, string? reason, CancellationToken ct = default)
+    /// <summary>
+    /// Devuelve parte o todo de una venta (POS-43, POS-44). El dinero vuelve al medio con que se pagó (si se pagó con uno solo;
+    /// si no, en efectivo) o al que se elija; solo el efectivo sale del cajón. Pasado el plazo de la tienda
+    /// (<see cref="StoreSettings.ReturnDays"/>) hace falta un supervisor.
+    /// </summary>
+    public Task<string> ReturnAsync(Guid saleId, IReadOnlyList<ReturnLine> lines, string? reason, CancellationToken ct = default) =>
+        ReturnAsync(saleId, lines, reason, null, ct);
+
+    public Task<string> ReturnAsync(Guid saleId, IReadOnlyList<ReturnLine> lines, string? reason, string? refundMethod, CancellationToken ct = default)
     {
         RequirePermission(PosPermissions.Return);
         var requested = lines.Where(l => l.Quantity > 0).ToList();
         Require(requested.Count > 0, T("error.indica_que_articulos_se_devuelven"));
+        Require(refundMethod is null || PaymentMethods.All.Contains(refundMethod), T("error.medio_de_pago_desconocido"));
+        return InTransactionAsync(async (c, tx, now) =>
+        {
+            var (session, sale) = await ReturnContextAsync(c, tx, now, saleId);
+            var (returned, total) = await ReturnLinesAsync(c, tx, sale, requested);
+            var method = refundMethod ?? await OriginalMethodAsync(c, tx, saleId);
+            return await RecordReturnAsync(c, tx, now, session, sale.Id, sale.Number, sale.SiteId, sale.CurrencyCode, returned, total, reason, method,
+                method == PaymentMethods.Cash ? total : 0, null);
+        }, ct);
+    }
+
+    /// <summary>
+    /// Cambio (POS-42): devuelve unas líneas y vende otras en una sola operación. Lo devuelto paga lo nuevo (pago
+    /// <c>exchange</c>); si lo nuevo cuesta más, el cliente paga la diferencia con <paramref name="newSale"/>.Payments; si cuesta
+    /// menos, la diferencia se le devuelve por el medio original de la venta (o el elegido).
+    /// </summary>
+    public Task<ExchangeReceipt> ExchangeAsync(Guid saleId, IReadOnlyList<ReturnLine> lines, SaleDraft newSale, string? reason,
+        string? refundMethod = null, CancellationToken ct = default)
+    {
+        RequirePermission(PosPermissions.Return);
+        ValidateDraft(newSale, paymentsRequired: false);
+        var requested = lines.Where(l => l.Quantity > 0).ToList();
+        Require(requested.Count > 0, T("error.indica_que_articulos_se_devuelven"));
+        return InTransactionAsync(async (c, tx, now) =>
+        {
+            var (session, sale) = await ReturnContextAsync(c, tx, now, saleId);
+            var (returned, total) = await ReturnLinesAsync(c, tx, sale, requested);
+            var saleId2 = Guid.NewGuid();
+            var receipt = await CheckoutCoreAsync(c, tx, now, session, newSale with { CustomerId = newSale.CustomerId ?? sale.CustomerId },
+                total, saleId2);
+            var credit = Math.Min(total, receipt.Total);
+            var refund = total - credit;
+            var method = refundMethod ?? await OriginalMethodAsync(c, tx, saleId);
+            var number = await RecordReturnAsync(c, tx, now, session, sale.Id, sale.Number, sale.SiteId, sale.CurrencyCode, returned, total, reason,
+                PaymentMethods.Exchange, method == PaymentMethods.Cash ? refund : 0, saleId2);
+            await AuditAsync(c, tx, now, "sale.exchanged", "sale", saleId, sale.Number,
+                $"{number} → {receipt.Number}: crédito {credit:0.##}, diferencia {(refund > 0 ? $"devuelta {refund:0.##} ({method})" : $"pagada {receipt.Total - credit:0.##}")}");
+            return new ExchangeReceipt(number, receipt, credit, refund);
+        }, ct);
+    }
+
+    /// <summary>Devolución sin ticket (solo un supervisor): lo devuelto vuelve al stock y el dinero sale en efectivo.</summary>
+    public Task<string> ReturnWithoutReceiptAsync(IReadOnlyList<CartLine> lines, string reason, CancellationToken ct = default)
+    {
+        RequirePermission(PosPermissions.ReturnOverride);
+        Require(lines.Count > 0 && lines.All(l => l.Quantity > 0), T("error.indica_que_articulos_se_devuelven"));
+        Require(!string.IsNullOrWhiteSpace(reason), T("error.devolucion_sin_ticket_motivo"));
         return InTransactionAsync(async (c, tx, now) =>
         {
             var session = await CashService.OpenSessionAsync(c, tx);
             Require(session is not null, T("error.abre_la_caja_para_devolver"));
-            var sale = await GetSaleAsync(c, tx, saleId);
-            Require(sale is not null, T("error.la_venta_no_existe"));
-            Require(sale!.Status == SaleStatuses.Completed, T("error.la_venta_esta_anulada"));
-
-            var saleLines = (await LinesAsync(c, tx, saleId)).ToDictionary(l => l.LineNo);
-            var returned = new List<(SaleLineRow Line, decimal Quantity, decimal Total)>();
-            foreach (var r in requested)
+            var currency = await c.ScalarAsync<string?>("SELECT currency_code FROM company WHERE id = 1", tx) ?? "PEN";
+            var returned = new List<(Guid ItemId, int? LineNo, decimal Quantity, decimal Total)>();
+            foreach (var l in lines)
             {
-                Require(saleLines.TryGetValue(r.LineNo, out var line), T("error.una_de_las_lineas_no"));
-                Require(r.Quantity <= line!.Returnable, T("error.de_solo_se_pueden_devolver", line.Name, line.Returnable));
-                returned.Add((line, r.Quantity, Currencies.Get(sale.CurrencyCode).Round(line.Total * r.Quantity / line.Quantity)));
+                var price = l.UnitPrice ?? await c.ScalarAsync<decimal?>("SELECT price FROM items WHERE id = $id", tx, ("$id", l.ItemId));
+                Require(price is not null, T("error.el_articulo_no_existe"));
+                returned.Add((l.ItemId, null, l.Quantity, Currencies.Get(currency).Round(price!.Value * l.Quantity)));
             }
-
-            var returnId = Guid.NewGuid();
-            var number = await DocumentNumbers.NextAsync(c, tx, DocumentNumbers.Return, Context.DeviceTag);
             var total = returned.Sum(r => r.Total);
-            var e = new SaleReturned(saleId, returnId, sale.SiteId,
-                returned.Select(r => new SaleReturnLine(r.Line.ItemId, r.Quantity, r.Total)).ToList(), total, number, Clean(reason));
-            await InsertReturnAsync(c, tx, e, session!.Id, now, Context.UserName,
-                returned.Select(r => (r.Line.LineNo, r.Quantity)).ToList());
-            await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleReturned, e, subjectType: "sale", subjectId: sale.Number, id: returnId);
-            await AuditAsync(c, tx, now, AuditActions.Returned, "sale", saleId, sale.Number, $"{number} por {total:0.##} {sale.CurrencyCode}{(Clean(reason) is { } motivo ? $": {motivo}" : "")}");
-            return number;
+            return await RecordReturnAsync(c, tx, now, session!, Guid.Empty, null, session!.SiteId, currency, returned, total, reason,
+                PaymentMethods.Cash, total, null);
         }, ct);
+    }
+
+    /// <summary>Caja abierta, venta vigente y la política de la tienda: pasado el plazo, solo un supervisor.</summary>
+    private async Task<(CashSessionRow Session, SaleRow Sale)> ReturnContextAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, Guid saleId)
+    {
+        var session = await CashService.OpenSessionAsync(c, tx);
+        Require(session is not null, T("error.abre_la_caja_para_devolver"));
+        var sale = await GetSaleAsync(c, tx, saleId);
+        Require(sale is not null, T("error.la_venta_no_existe"));
+        Require(sale!.Status == SaleStatuses.Completed, T("error.la_venta_esta_anulada"));
+        var days = (await StoreSettingsService.GetAsync(c, tx, sale.SiteId)).ReturnDays;
+        var age = (now - sale.CreatedAt).TotalDays;
+        // Fuera del plazo de la tienda: un supervisor (en la caja, con su PIN) puede autorizarlo.
+        if (days > 0 && age > days && !Context.Can(PosPermissions.ReturnOverride))
+            throw new PosPermissionException(T("error.devolucion_fuera_de_plazo", days, (int)age), PosPermissions.ReturnOverride);
+        return (session!, sale);
+    }
+
+    private static async Task<(List<(Guid ItemId, int? LineNo, decimal Quantity, decimal Total)> Lines, decimal Total)> ReturnLinesAsync(
+        SqliteConnection c, SqliteTransaction tx, SaleRow sale, IReadOnlyList<ReturnLine> requested)
+    {
+        var saleLines = (await LinesAsync(c, tx, sale.Id)).ToDictionary(l => l.LineNo);
+        var returned = new List<(Guid ItemId, int? LineNo, decimal Quantity, decimal Total)>();
+        foreach (var r in requested)
+        {
+            Require(saleLines.TryGetValue(r.LineNo, out var line), T("error.una_de_las_lineas_no"));
+            Require(r.Quantity <= line!.Returnable, T("error.de_solo_se_pueden_devolver", line.Name, line.Returnable));
+            returned.Add((line.ItemId, line.LineNo, r.Quantity, Currencies.Get(sale.CurrencyCode).Round(line.Total * r.Quantity / line.Quantity)));
+        }
+        return (returned, returned.Sum(r => r.Total));
+    }
+
+    /// <summary>El medio con que se pagó la venta si fue uno solo (sin contar el crédito de un cambio); si no, efectivo.</summary>
+    private static async Task<string> OriginalMethodAsync(SqliteConnection c, SqliteTransaction tx, Guid saleId)
+    {
+        var methods = (await c.QueryAsync("SELECT DISTINCT method FROM sale_payments WHERE sale_id = $id AND method <> 'exchange'",
+            r => r.Str("method"), tx, ("$id", saleId))).ToList();
+        return methods.Count == 1 ? methods[0] : PaymentMethods.Cash;
+    }
+
+    private async Task<string> RecordReturnAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, CashSessionRow session, Guid saleId,
+        string? saleNumber, Guid siteId, string currency, List<(Guid ItemId, int? LineNo, decimal Quantity, decimal Total)> returned, decimal total,
+        string? reason, string refundMethod, decimal cashRefund, Guid? exchangeSaleId)
+    {
+        var returnId = Guid.NewGuid();
+        var number = await DocumentNumbers.NextAsync(c, tx, DocumentNumbers.Return, Context.DeviceTag);
+        var e = new SaleReturned(saleId, returnId, siteId, returned.Select(r => new SaleReturnLine(r.ItemId, r.Quantity, r.Total)).ToList(), total,
+            number, Clean(reason), refundMethod, exchangeSaleId);
+        await InsertReturnAsync(c, tx, e, session.Id, now, Context.UserName,
+            returned.Where(r => r.LineNo is not null).Select(r => (r.LineNo!.Value, r.Quantity)).ToList(), cashRefund);
+        await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleReturned, e, subjectType: "sale", subjectId: saleNumber ?? number, id: returnId);
+        await AuditAsync(c, tx, now, AuditActions.Returned, "sale", saleId == Guid.Empty ? null : saleId, saleNumber ?? number,
+            $"{number} por {total:0.##} {currency} ({refundMethod}){(Clean(reason) is { } motivo ? $": {motivo}" : "")}");
+        return number;
+    }
+
+    // ---------- Clientes en caja (POS-52) ----------
+
+    /// <summary>
+    /// Lo que compró el cliente en todas las tiendas (las ventas de las otras cajas llegan por la sincronización): cuántas
+    /// veces, cuánto, la última, lo devuelto, sus últimas compras y lo que más lleva.
+    /// </summary>
+    public async Task<CustomerHistory> GetCustomerHistoryAsync(Guid customerId, CancellationToken ct = default)
+    {
+        await using var c = await Db.OpenAsync(ct);
+        var totals = (await c.QueryAsync("""
+            SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS total, MAX(created_at) AS last FROM sales
+            WHERE customer_id = $id AND status = 'completed'
+            """, r => (N: r.Int("n"), Total: r.Dec("total"), Last: r.TimeOrNull("last")), null, ("$id", customerId)))[0];
+        var returned = await c.ScalarAsync<decimal>("""
+            SELECT COALESCE(SUM(r.total), 0) FROM sale_returns r JOIN sales s ON s.id = r.sale_id WHERE s.customer_id = $id
+            """, null, ("$id", customerId));
+        var recent = await c.QueryAsync($"{SelectSales} WHERE s.customer_id = $id ORDER BY s.created_at DESC LIMIT 5", ReadSale, null, ("$id", customerId));
+        var top = await c.QueryAsync("""
+            SELECT l.item_id, MAX(l.name) AS name, MAX(l.sku) AS sku, SUM(l.quantity - l.returned_qty) AS qty, SUM(l.total) AS total
+            FROM sale_lines l JOIN sales s ON s.id = l.sale_id
+            WHERE s.customer_id = $id AND s.status = 'completed' GROUP BY l.item_id ORDER BY qty DESC LIMIT 5
+            """, r => new TopItem(r.Guid("item_id"), r.Str("name"), r.StrOrNull("sku"), r.Dec("qty"), r.Dec("total")), null, ("$id", customerId));
+        var currency = await c.ScalarAsync<string?>("SELECT currency_code FROM company WHERE id = 1", null) ?? "PEN";
+        return new CustomerHistory(customerId, totals.N, totals.Total, currency, totals.Last, returned, recent, top);
     }
 
     // ---------- Consultas ----------
@@ -585,13 +723,16 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             """, tx, ("$id", saleId), ("$at", at), ("$reason", reason));
 
     private static async Task InsertReturnAsync(SqliteConnection c, SqliteTransaction tx, SaleReturned e, Guid? sessionId,
-        DateTimeOffset at, string? userName, IReadOnlyList<(int LineNo, decimal Quantity)> lines)
+        DateTimeOffset at, string? userName, IReadOnlyList<(int LineNo, decimal Quantity)> lines, decimal? cashRefund = null)
     {
         await c.ExecAsync("""
-            INSERT INTO sale_returns (id, number, sale_id, site_id, cash_session_id, total, reason, created_at, user_name)
-            VALUES ($id, $number, $sale, $site, $session, $total, $reason, $at, $user)
+            INSERT INTO sale_returns (id, number, sale_id, site_id, cash_session_id, total, reason, created_at, user_name, refund_method,
+                                      cash_refund, exchange_sale_id)
+            VALUES ($id, $number, $sale, $site, $session, $total, $reason, $at, $user, $method, $cash, $exchange)
             """, tx, ("$id", e.ReturnId), ("$number", e.Number ?? e.ReturnId.ToString()[..8].ToUpperInvariant()), ("$sale", e.SaleId),
-            ("$site", e.SiteId), ("$session", sessionId), ("$total", e.Total), ("$reason", e.Reason), ("$at", at), ("$user", userName));
+            ("$site", e.SiteId), ("$session", sessionId), ("$total", e.Total), ("$reason", e.Reason), ("$at", at), ("$user", userName),
+            ("$method", e.RefundMethod), ("$cash", cashRefund ?? (e.RefundMethod is null or PaymentMethods.Cash ? e.Total : 0)),
+            ("$exchange", e.ExchangeSaleId));
         var lineNo = 0;
         foreach (var l in e.Lines ?? [])
         {

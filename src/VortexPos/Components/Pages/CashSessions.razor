@@ -30,6 +30,7 @@
                     {
                         <button class="btn btn-sm" @onclick="() => StartMovement(CashMovementKinds.In)"><Icon Name="plus" Size="16" />@T("cashsessions.ingreso")</button>
                         <button class="btn btn-sm" @onclick="() => StartMovement(CashMovementKinds.Out)"><Icon Name="minus" Size="16" />@T("cashsessions.retiro")</button>
+                        <button class="btn btn-sm" @onclick="() => StartMovement(CashMovementKinds.Deposit)"><Icon Name="bank" Size="16" />@T("cashsessions.deposito")</button>
                         @if (Printer.IsConfigured)
                         {
                             <button class="btn btn-sm" @onclick="OpenDrawerAsync"><Icon Name="unlock" Size="16" />@T("cashsessions.abrir_cajon")</button>
@@ -70,7 +71,7 @@
                         <div class="list-row" @key="m.Id">
                             <Icon Name="@(m.Kind == CashMovementKinds.In ? "plus" : "minus")" Size="18" Class="faint" />
                             <div class="two-line">
-                                <span class="t1" style="font-weight:600">@(m.Kind == CashMovementKinds.In ? T("cashsessions.ingreso") : T("cashsessions.retiro")): @m.Reason</span>
+                                <span class="t1" style="font-weight:600">@(m.Kind == CashMovementKinds.In ? T("cashsessions.ingreso") : m.Kind == CashMovementKinds.Deposit ? T("cashsessions.deposito") : T("cashsessions.retiro")): @m.Reason</span>
                                 <span class="t2">@Fmt.Time(m.CreatedAt)@(m.UserName is null ? "" : $" · {m.UserName}")</span>
                             </div>
                             <strong class="end @(m.Kind == CashMovementKinds.In ? "qty-pos" : "qty-neg")">@(m.Kind == CashMovementKinds.In ? "+" : "−")@Fmt.Money(m.Amount, Currency)</strong>
@@ -163,8 +164,8 @@
 
 @if (_movementKind is { } kind)
 {
-    <Modal Title="@(kind == CashMovementKinds.In ? T("cashsessions.ingreso_de_efectivo") : T("cashsessions.retiro_de_efectivo"))"
-           Subtitle="@(kind == CashMovementKinds.In ? T("cashsessions.efectivo_que_entra_al_cajon") : T("cashsessions.efectivo_que_sale_del_cajon"))"
+    <Modal Title="@(kind == CashMovementKinds.In ? T("cashsessions.ingreso_de_efectivo") : kind == CashMovementKinds.Deposit ? T("cashsessions.deposito_en_banco") : T("cashsessions.retiro_de_efectivo"))"
+           Subtitle="@(kind == CashMovementKinds.In ? T("cashsessions.efectivo_que_entra_al_cajon") : kind == CashMovementKinds.Deposit ? T("cashsessions.deposito_explica") : T("cashsessions.efectivo_que_sale_del_cajon"))"
            Size="sm" Error="@_error" OnClose="() => _movementKind = null">
         <ChildContent>
             <div class="field">
@@ -175,6 +176,13 @@
                 <label>@T("cashsessions.motivo")</label>
                 <input class="control" placeholder="@(kind == CashMovementKinds.In ? T("cashsessions.ej_sencillo_del_banco") : T("cashsessions.ej_deposito_al_banco"))" @bind="_note" />
             </div>
+            @if (kind == CashMovementKinds.Deposit)
+            {
+                <div class="form-row">
+                    <div class="field"><label>@T("cashsessions.banco")</label><input class="control" @bind="_bank" /></div>
+                    <div class="field"><label>@T("cashsessions.nro_operacion")</label><input class="control" @bind="_reference" /></div>
+                </div>
+            }
         </ChildContent>
         <Footer>
             <button class="btn" @onclick="() => _movementKind = null">@T("cashsessions.cancelar")</button>
@@ -274,7 +282,7 @@
     private bool _opening, _closing, _busy, _byDenomination;
     private string? _movementKind;
     private decimal _amount;
-    private string? _note, _error;
+    private string? _note, _error, _bank, _reference;
     private IReadOnlyList<decimal> _denominations = [];
     private readonly Dictionary<decimal, int> _counts = [];
     private CashReport? _report;
@@ -324,7 +332,7 @@
     {
         _error = null;
         _amount = 0;
-        _note = null;
+        (_note, _bank, _reference) = (null, null, null);
         _movementKind = kind;
     }
 
@@ -342,8 +350,9 @@
         if (_movementKind is not { } kind)
             return;
         _busy = true;
-        _error = await TryAsync(() => Pos.Cash.AddMovementAsync(kind, _amount, _note ?? ""),
-            kind == CashMovementKinds.In ? T("cashsessions.ingreso_registrado") : T("cashsessions.retiro_registrado"));
+        _error = await TryAsync(() => Pos.Cash.AddMovementAsync(kind, _amount,
+                string.IsNullOrWhiteSpace(_note) && kind == CashMovementKinds.Deposit ? T("cashsessions.deposito_en_banco") : _note ?? "", _reference, _bank),
+            kind == CashMovementKinds.In ? T("cashsessions.ingreso_registrado") : kind == CashMovementKinds.Deposit ? T("cashsessions.deposito_registrado") : T("cashsessions.retiro_registrado"));
         _busy = false;
         if (_error is not null)
             return;

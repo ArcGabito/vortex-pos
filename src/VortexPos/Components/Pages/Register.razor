@@ -83,6 +83,12 @@ else
                             <option value="@c.Id">@c.Label@(c.Detail is null ? "" : $" · {c.Detail}")</option>
                         }
                     </select>
+                    @if (_history is { Purchases: > 0 } h && h.CustomerId == _customerId)
+                    {
+                        <span class="hint customer-history">
+                            <Icon Name="clock" Size="13" />@T("register.historial", h.Purchases, Fmt.Money(h.Total, h.CurrencyCode), Fmt.Ago(h.LastPurchase!.Value))@(h.TopItems.Count > 0 ? $" · {T("register.suele_llevar", string.Join(", ", h.TopItems.Take(3).Select(t => t.Name)))}" : "")
+                        </span>
+                    }
                     @if (_quote?.PriceList is { } lista)
                     {
                         <span class="hint price-list-hint"><Icon Name="tag" Size="13" />@T("register.precios_de_la_lista", lista.Name)</span>
@@ -401,6 +407,7 @@ else
     private string _category = "";
     private readonly List<CartItem> _cart = [];
     private Guid? _customerId;
+    private CustomerHistory? _history;
     private ItemPicker? _picker;
 
     private CartItem? _discountFor, _priceFor;
@@ -441,6 +448,8 @@ else
             // Otro cliente puede tener otra lista: el catálogo muestra sus precios.
             _listPricesFor = _customerId;
             _listPrices = await Pos.Sales.ListPricesAsync(_tiles, _customerId);
+            // Lo que compró este cliente en todas las tiendas (POS-52).
+            _history = _customerId is { } who ? await Pos.Sales.GetCustomerHistoryAsync(who) : null;
             StateHasChanged();
         }
         if (key == _quoteKey)

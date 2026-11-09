@@ -8,6 +8,10 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Postventa (fase 4a):** cambios (devolver y llevar otro en una operación, pagando o recibiendo la diferencia),
+  reembolso al medio de pago original, política de devoluciones por tienda (plazo; fuera de él o sin ticket, con
+  supervisor), historial del cliente en la caja y depósito de caja en el banco (`cash.deposited`, para la tesorería del
+  ERP). El cajero puede devolver dentro del plazo.
 - **Listas de precios (fase 3c):** las listas del hub (`price_list`) por cliente y por tienda, con escalas por cantidad
   y vigencia, fijan el precio base de cada línea; cobrar a ese precio no pide permiso. La caja muestra la lista que rige
   y el catálogo sus precios. `sale.completed` lleva `priceListId`.

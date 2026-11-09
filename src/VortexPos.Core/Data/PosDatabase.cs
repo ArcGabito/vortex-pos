@@ -188,5 +188,14 @@ internal static class Schema
         ALTER TABLE parties ADD COLUMN price_list_id TEXT;
         ALTER TABLE sales ADD COLUMN price_list_id TEXT;
         """,
+        // 7: postventa (fase 4a). Cómo se reembolsó cada devolución (medio y cuánto salió en efectivo del cajón; sin dato, todo
+        // en efectivo como antes) y, en un cambio, la venta nueva. Referencia y banco de los depósitos de caja.
+        """
+        ALTER TABLE sale_returns ADD COLUMN refund_method TEXT;
+        ALTER TABLE sale_returns ADD COLUMN cash_refund REAL;
+        ALTER TABLE sale_returns ADD COLUMN exchange_sale_id TEXT;
+        ALTER TABLE cash_movements ADD COLUMN reference TEXT;
+        ALTER TABLE cash_movements ADD COLUMN bank TEXT;
+        """,
     ];
 }
