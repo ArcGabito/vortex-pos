@@ -40,7 +40,33 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
         .OnEvent(SuiteEvents.PosRecordUpserted, HandlePosRecordAsync)
         .OnEvent(SuiteEvents.StockAdjusted, HandleStockAdjustedAsync)
         .OnEvent(SuiteEvents.InvoiceIssued, HandleInvoiceIssuedAsync)
-        .OnEvent(SuiteEvents.InvoiceVoided, HandleInvoiceVoidedAsync);
+        .OnEvent(SuiteEvents.InvoiceVoided, HandleInvoiceVoidedAsync)
+        .OnEvent(SuiteEvents.BalanceMoved, HandleBalanceMovedAsync)
+        .OnEvent(SuiteEvents.PaymentReceived, HandlePaymentReceivedAsync);
+
+    /// <summary>Movimiento de puntos o gift card de otra caja (o de esta, al volver del hub): se guarda una vez.</summary>
+    public Task HandleBalanceMovedAsync(VortexEvent e, CancellationToken ct = default) =>
+        ApplyOnceAsync<BalanceMoved>(e, async (m, c, tx) =>
+        {
+            if (e.Source != ProductCode)
+                return "ignorado: los saldos solo los mueve el POS";
+            if (m.AccountId == Guid.Empty || m.Kind is not (BalanceKinds.Points or BalanceKinds.GiftCard))
+                return "movimiento no válido";
+            await BalanceService.ApplyMovementAsync(c, tx, e.OccurredAt, m);
+            return null;
+        }, ct);
+
+    /// <summary>Cobro del ERP a un cliente: baja su cuenta corriente.</summary>
+    public Task HandlePaymentReceivedAsync(VortexEvent e, CancellationToken ct = default) =>
+        ApplyOnceAsync<PaymentReceived>(e, async (p, c, tx) =>
+        {
+            if (e.Source != "ERP")
+                return "ignorado: solo cuentan los cobros del ERP";
+            if (p.CustomerId is not { } customer || p.Amount <= 0)
+                return "cobro sin cliente";
+            await BalanceService.ApplyCustomerPaymentAsync(c, tx, p.PaymentId, customer, p.Amount, e.OccurredAt);
+            return null;
+        }, ct);
 
     // ---------- Otras cajas del POS ----------
 
@@ -81,7 +107,7 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
         {
             if (e.Source != ProductCode)
                 return "ignorado: los registros del POS solo los publica el POS";
-            if (record.Kind is not (PosRecordKinds.StoreSettings or PosRecordKinds.Promotion) || string.IsNullOrEmpty(record.Id))
+            if (record.Kind is not (PosRecordKinds.StoreSettings or PosRecordKinds.Promotion or PosRecordKinds.Loyalty or PosRecordKinds.Layaway) || string.IsNullOrEmpty(record.Id))
                 return $"ignorado: tipo de registro {record.Kind}";
             return await StoreSettingsService.UpsertAsync(c, tx, record) ? null : "ignorado: hay un cambio más reciente";
         }, ct);

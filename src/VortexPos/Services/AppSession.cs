@@ -91,6 +91,7 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
     public Guid? UserId => _operator?.UserId ?? Session?.User.Id;
     public string UserName => _operator?.Name ?? Session?.User.FullName ?? "";
     public string? AuthorizedBy => _authorizer?.Name;
+    public bool IsOnline => Connection == ConnectionState.Online;
     public string DeviceTag => DeviceIdentity.Tag(_deviceId);
 
     /// <summary>Tiendas asignadas en el hub (<c>Access.SiteIds</c>). Los administradores de la organización ven todas.</summary>

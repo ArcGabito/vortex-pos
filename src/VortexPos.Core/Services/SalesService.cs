@@ -71,9 +71,13 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         Require(draft.Payments.Count(p => p.Method == PaymentMethods.Cash) <= 1, T("error.registra_el_efectivo_en_un"));
     }
 
+    /// <summary>La venta que completa un apartado: sus líneas, pagadas con lo abonado (pago <c>layaway</c>).</summary>
+    internal Task<SaleReceipt> CheckoutLayawayAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, CashSessionRow session, Layaway layaway) =>
+        CheckoutCoreAsync(c, tx, now, session, new SaleDraft(layaway.Lines, [], layaway.CustomerId, layaway.SiteId), null, null, layaway.Paid);
+
     /// <summary>La venta en la transacción de quien llama. <paramref name="exchangeCredit"/>: lo que vale lo devuelto en un cambio.</summary>
     private async Task<SaleReceipt> CheckoutCoreAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, CashSessionRow session,
-        SaleDraft draft, decimal? exchangeCredit, Guid? id)
+        SaleDraft draft, decimal? exchangeCredit, Guid? id, decimal? layawayCredit = null)
     {
         {
             var siteId = draft.SiteId ?? session.SiteId;
@@ -88,6 +92,8 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             var drafts = draft.Payments.ToList();
             if (exchangeCredit is > 0 and var credit)
                 drafts.Insert(0, new PaymentDraft(PaymentMethods.Exchange, Math.Min(credit, totals.Total)));
+            if (layawayCredit is > 0 and var deposits)
+                drafts.Insert(0, new PaymentDraft(PaymentMethods.Layaway, Math.Min(deposits, totals.Total)));
             var payments = Settle(drafts, totals.Total, draft.CustomerId, out var cashReceived, out var change);
 
             var saleId = id ?? Guid.NewGuid();
@@ -97,6 +103,25 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
                     regime.IsTaxed(l.Item.TaxCode), TaxCategories.Normalize(l.Item.TaxCode), l.Presentation, l.ListPrice, l.PromotionId)).ToList(),
                 payments.Select(p => new SalePayment(p.Method, p.Amount)).ToList(), totals.Discount, Context.UserName,
                 string.IsNullOrWhiteSpace(draft.Coupon) ? null : draft.Coupon.Trim().ToUpperInvariant(), priceList?.Id);
+
+            // Saldos del cliente (fase 4b): gift cards y puntos que paga, crédito con su límite y puntos que gana.
+            var balances = new BalanceService(Db, Context, Clock);
+            foreach (var p in payments)
+            {
+                if (p.Method == PaymentMethods.GiftCard)
+                    await balances.SpendGiftCardAsync(c, tx, now, p.Reference, p.Amount, saleId, siteId);
+                else if (p.Method == PaymentMethods.Points)
+                {
+                    Require(draft.CustomerId is not null, T("error.puntos_sin_cliente"));
+                    await balances.RedeemPointsAsync(c, tx, now, draft.CustomerId!.Value, p.Amount, saleId, siteId);
+                }
+                else if (p.Method == PaymentMethods.Credit)
+                    await balances.RequireCreditAsync(c, tx, draft.CustomerId!.Value, p.Amount);
+            }
+            if (draft.CustomerId is { } buyer)
+                await balances.EarnPointsAsync(c, tx, now, buyer,
+                    payments.Where(p => p.Method is not (PaymentMethods.Points or PaymentMethods.GiftCard or PaymentMethods.Exchange)).Sum(p => p.Amount),
+                    saleId, siteId);
 
             await InsertSaleAsync(c, tx, completed, "local", session.Id, now, cashReceived, change, payments);
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleCompleted, completed, subjectType: "sale", subjectId: number, id: saleId);
@@ -140,8 +165,13 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         await using var tx = c.BeginTransaction();
         var session = await CashService.OpenSessionAsync(c, tx);
         var siteId = draft.SiteId ?? session?.SiteId ?? await DefaultSiteAsync(c, tx) ?? Guid.Empty;
+        return await QuoteAsync(c, tx, Clock.GetUtcNow(), draft, siteId);
+    }
+
+    internal async Task<SaleQuote> QuoteAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, SaleDraft draft, Guid siteId)
+    {
         var regime = await TaxRegimeAsync(c, tx);
-        var (lines, applied, _, priceList) = await PriceAsync(c, tx, Clock.GetUtcNow(), draft, siteId, checkPermissions: false);
+        var (lines, applied, _, priceList) = await PriceAsync(c, tx, now, draft, siteId, checkPermissions: false);
         var currency = lines.FirstOrDefault()?.Item.CurrencyCode ?? "PEN";
         return new SaleQuote(
             lines.Select(l => new QuoteLine(l.Item.Id, l.Presentation, l.UnitPrice, l.Quantity, l.Quantity * l.UnitPrice, l.PromotionDiscount,
@@ -342,6 +372,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             Require(sale!.Status == SaleStatuses.Completed, T("error.la_venta_ya_esta_anulada"));
             Require(sale.Returned == 0, T("error.la_venta_tiene_devoluciones_no"));
             await MarkVoidedAsync(c, tx, saleId, now, reason.Trim());
+            await new BalanceService(Db, Context, Clock).ReverseSaleAsync(c, tx, now, saleId);
             await AuditAsync(c, tx, now, AuditActions.Voided, "sale", saleId, sale.Number, reason.Trim());
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleVoided, new SaleVoided(saleId, sale.Number, reason.Trim()),
                 subjectType: "sale", subjectId: sale.Number, id: DeterministicId.From("sale_void", saleId));

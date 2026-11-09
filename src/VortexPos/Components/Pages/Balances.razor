@@ -1,0 +1,225 @@
+@page "/saldos"
+@inherits PosPage
+
+<SectionContent SectionName="page-title">@T("balances.saldos")</SectionContent>
+
+<div class="page">
+    <div class="page-head">
+        <div>
+            <h2>@T("balances.saldos_del_cliente")</h2>
+            <p>@T("balances.explica")</p>
+        </div>
+        <button class="btn btn-dark" @onclick="() => (_issuing, _error, _amount, _code) = (true, null, 0, null)"><Icon Name="tag" Size="18" />@T("balances.vender_gift_card")</button>
+    </div>
+
+    <div class="grid-2">
+        <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+            <div class="card">
+                <div class="card-head"><h3>@T("balances.consultar_gift_card")</h3></div>
+                <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+                    <div style="display:flex;gap:8px">
+                        <input class="control" placeholder="@(T("balances.codigo"))" @bind="_lookup" @bind:event="oninput" />
+                        <button class="btn" @onclick="LookupAsync">@T("balances.consultar")</button>
+                    </div>
+                    @if (_card is { } card)
+                    {
+                        <div class="list-row">
+                            <span class="two-line" style="flex:1">
+                                <span class="t1">@card.Code</span>
+                                <span class="t2">@T("balances.emitida", Fmt.Money(card.Issued, Currency))@(card.ExpiresOn is { } e ? $" · {T("balances.vence", Fmt.Date(e))}" : "")</span>
+                            </span>
+                            <strong>@Fmt.Money(card.Balance, Currency)</strong>
+                        </div>
+                    }
+                    else if (_lookedUp)
+                    {
+                        <p class="muted" style="margin:0">@T("balances.no_existe")</p>
+                    }
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-head"><h3>@T("balances.apartados")</h3></div>
+                <div class="card-body">
+                    @if (_layaways.Count == 0)
+                    {
+                        <p class="muted" style="margin:0">@T("balances.sin_apartados")</p>
+                    }
+                    @foreach (var l in _layaways)
+                    {
+                        <div class="list-row" @key="l.Id">
+                            <span class="two-line" style="flex:1;min-width:0">
+                                <span class="t1">@l.Number · @(l.CustomerName ?? "—")</span>
+                                <span class="t2">@T("balances.abonado", Fmt.Money(l.Paid, l.CurrencyCode), Fmt.Money(l.Total, l.CurrencyCode)) · @Fmt.Ago(l.CreatedAt)</span>
+                            </span>
+                            <strong>@Fmt.Money(l.Remaining, l.CurrencyCode)</strong>
+                            <button class="btn btn-sm btn-dark" @onclick="() => (_paying, _error, _amount, _method) = (l, null, l.Remaining, PaymentMethods.Cash)">@T("balances.abonar")</button>
+                            @if (Session.CanOrApprove(PosPermissions.Void))
+                            {
+                                <button class="btn btn-sm btn-ghost" @onclick="() => CancelAsync(l)">@T("balances.cancelar")</button>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="align-self:start">
+            <div class="card-head">
+                <div>
+                    <h3>@T("balances.programa")</h3>
+                    <div class="sub">@T("balances.programa_explica")</div>
+                </div>
+                <button class="btn btn-dark btn-sm" disabled="@(!Session.Can(PosPermissions.StoreSettings))" @onclick="SaveSettingsAsync">@T("balances.guardar")</button>
+            </div>
+            <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+                <label class="check-row"><input type="checkbox" @bind="_s.Enabled" /><span>@T("balances.puntos_activos")</span></label>
+                <div class="form-row">
+                    <div class="field"><label>@T("balances.puntos_por_unidad")</label><input class="control" type="number" min="0" step="0.1" @bind="_s.PointsPerUnit" /></div>
+                    <div class="field"><label>@T("balances.valor_del_punto")</label><input class="control" type="number" min="0" step="0.01" @bind="_s.PointValue" /></div>
+                </div>
+                <div class="form-row">
+                    <div class="field"><label>@T("balances.canje_minimo")</label><input class="control" type="number" min="0" @bind="_s.MinRedeem" /></div>
+                    <div class="field"><label>@T("balances.vigencia_gift_card")</label><input class="control" type="number" min="0" max="120" @bind="_s.GiftCardMonths" /></div>
+                </div>
+                <div class="field">
+                    <label>@T("balances.limite_sin_red")</label>
+                    <input class="control" type="number" min="0" step="1" @bind="_s.OfflineGiftCardLimit" />
+                    <span class="hint">@T("balances.limite_sin_red_explica")</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_issuing)
+{
+    <Modal Title="@(T("balances.vender_gift_card"))" Subtitle="@(T("balances.vender_explica"))" Size="sm" Error="@_error" OnClose="() => _issuing = false">
+        <ChildContent>
+            <div class="field"><label>@T("balances.monto")</label><input class="control" type="number" min="0" step="1" @bind="_amount" /></div>
+            <div class="field"><label>@T("balances.codigo_opcional")</label><input class="control" placeholder="@(T("balances.se_genera"))" @bind="_code" /></div>
+            <div class="field">
+                <label>@T("balances.medio")</label>
+                <select class="select" @bind="_method">
+                    @foreach (var m in new[] { PaymentMethods.Cash, PaymentMethods.Card, PaymentMethods.Wallet, PaymentMethods.Transfer })
+                    {
+                        <option value="@m">@Fmt.PaymentMethod(m)</option>
+                    }
+                </select>
+            </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _issuing = false">@T("balances.cancelar")</button>
+            <button class="btn btn-dark" disabled="@(_busy || _amount <= 0)" @onclick="IssueAsync">@T("balances.vender")</button>
+        </Footer>
+    </Modal>
+}
+
+@if (_paying is { } p)
+{
+    <Modal Title="@(T("balances.abonar_a", p.Number))" Subtitle="@(T("balances.falta", Fmt.Money(p.Remaining, p.CurrencyCode)))" Size="sm" Error="@_error" OnClose="() => _paying = null">
+        <ChildContent>
+            <div class="form-row">
+                <div class="field"><label>@T("balances.monto")</label><input class="control" type="number" min="0" step="0.10" @bind="_amount" /></div>
+                <div class="field">
+                    <label>@T("balances.medio")</label>
+                    <select class="select" @bind="_method">
+                        @foreach (var m in new[] { PaymentMethods.Cash, PaymentMethods.Card, PaymentMethods.Wallet, PaymentMethods.Transfer })
+                        {
+                            <option value="@m">@Fmt.PaymentMethod(m)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _paying = null">@T("balances.cancelar")</button>
+            <button class="btn btn-dark" disabled="@(_busy || _amount <= 0)" @onclick="PayAsync">@T("balances.abonar")</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    private sealed class SettingsForm
+    {
+        public bool Enabled { get; set; }
+        public decimal PointsPerUnit { get; set; }
+        public decimal PointValue { get; set; }
+        public int MinRedeem { get; set; }
+        public decimal OfflineGiftCardLimit { get; set; }
+        public int GiftCardMonths { get; set; }
+    }
+
+    private IReadOnlyList<Layaway> _layaways = [];
+    private SettingsForm _s = new();
+    private bool _loaded, _issuing, _busy, _lookedUp;
+    private Layaway? _paying;
+    private decimal _amount;
+    private string? _code, _lookup, _error;
+    private string _method = PaymentMethods.Cash;
+    private GiftCardRow? _card;
+    private string Currency = "PEN";
+
+    protected override async Task LoadAsync()
+    {
+        _layaways = await Pos.Balances.GetLayawaysAsync();
+        Currency = (await Pos.Master.GetCompanyAsync())?.CurrencyCode ?? "PEN";
+        if (!_loaded)
+        {
+            var s = await Pos.Balances.GetSettingsAsync();
+            _s = new SettingsForm
+            {
+                Enabled = s.Enabled, PointsPerUnit = s.PointsPerUnit, PointValue = s.PointValue, MinRedeem = s.MinRedeem,
+                OfflineGiftCardLimit = s.OfflineGiftCardLimit, GiftCardMonths = s.GiftCardMonths,
+            };
+            _loaded = true;
+        }
+    }
+
+    private async Task LookupAsync()
+    {
+        _card = string.IsNullOrWhiteSpace(_lookup) ? null : await Pos.Balances.GetGiftCardAsync(_lookup);
+        _lookedUp = true;
+    }
+
+    private async Task IssueAsync()
+    {
+        _busy = true;
+        string? code = null;
+        _error = await TryAsync(async () => code = await Pos.Balances.IssueGiftCardAsync(_amount, _method, _code));
+        _busy = false;
+        if (_error is null)
+        {
+            Toasts.Success(T("balances.gift_card_vendida", code));
+            _issuing = false;
+            (_lookup, _card, _lookedUp) = (code, await Pos.Balances.GetGiftCardAsync(code!), true);
+        }
+    }
+
+    private async Task PayAsync()
+    {
+        var l = _paying!;
+        _busy = true;
+        SaleReceipt? receipt = null;
+        _error = await TryAsync(async () => receipt = await Pos.Balances.PayLayawayAsync(l.Id, _amount, _method));
+        _busy = false;
+        if (_error is null)
+        {
+            Toasts.Success(receipt is null ? T("balances.abono_registrado") : T("balances.apartado_completado", receipt.Number));
+            _paying = null;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task CancelAsync(Layaway l)
+    {
+        await RunAsync(() => Pos.Balances.CancelLayawayAsync(l.Id), T("balances.apartado_cancelado", Fmt.Money(l.Paid, l.CurrencyCode)));
+        await ReloadAsync();
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        await RunAsync(() => Pos.Balances.SaveSettingsAsync(new LoyaltySettings(_s.Enabled, _s.PointsPerUnit, _s.PointValue, _s.MinRedeem,
+            _s.OfflineGiftCardLimit, _s.GiftCardMonths)), T("balances.programa_guardado"));
+    }
+}

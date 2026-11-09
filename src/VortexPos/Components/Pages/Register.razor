@@ -76,13 +76,32 @@ else
             <div class="card-body cart-body">
                 <div class="field">
                     <label>@T("register.cliente")</label>
-                    <select class="select" @bind="_customerId">
+                    <div style="display:flex;gap:6px">
+                    <select class="select" style="flex:1" @bind="_customerId">
                         <option value="">@T("register.clientes_varios")</option>
                         @foreach (var c in _customers)
                         {
                             <option value="@c.Id">@c.Label@(c.Detail is null ? "" : $" · {c.Detail}")</option>
                         }
                     </select>
+                    @if (Session.Can(PosPermissions.CreateCustomer))
+                    {
+                        <button class="btn btn-ghost icon-btn" @onclick="() => (_newCustomer, _error) = (new NewCustomer(), null)" aria-label="@(T("register.cliente_nuevo"))" title="@(T("register.cliente_nuevo"))"><Icon Name="plus" Size="18" /></button>
+                    }
+                    </div>
+                    @if (_customerId is not null && (_points is > 0 || _account is { Owed: > 0 }))
+                    {
+                        <span class="hint customer-history">
+                            @if (_points is > 0 and var misPuntos)
+                            {
+                                <span><Icon Name="star" Size="13" />@T("register.puntos", Fmt.Qty(misPuntos))</span>
+                            }
+                            @if (_account is { Owed: > 0 } cuenta)
+                            {
+                                <span class="@(cuenta.Available is 0 ? "warn-text" : "")">@T("register.debe", Fmt.Money(cuenta.Owed, Currency))@(cuenta.Limit is { } limite ? $" / {Fmt.Money(limite, Currency)}" : "")</span>
+                            }
+                        </span>
+                    }
                     @if (_history is { Purchases: > 0 } h && h.CustomerId == _customerId)
                     {
                         <span class="hint customer-history">
@@ -174,6 +193,9 @@ else
                 <button class="btn btn-accent btn-block btn-lg" disabled="@(!CanCharge)" @onclick="OpenPayment">
                     <Icon Name="cash" Size="20" />@T("register.cobrar", (Fmt.Money(Totals.Total, Currency)))
                 </button>
+                <button class="btn btn-ghost btn-block" disabled="@(!CanCharge || _customerId is null)" title="@(_customerId is null ? T("register.elige_un_cliente_para_apartar") : null)" @onclick="() => (_layaway, _error, _deposit) = (true, null, 0)">
+                    <Icon Name="lock" Size="18" />@T("register.apartar")
+                </button>
             </div>
         </aside>
     </div>
@@ -252,6 +274,56 @@ else
     </Modal>
 }
 
+@if (_newCustomer is { } nc)
+{
+    <Modal Title="@(T("register.cliente_nuevo"))" Subtitle="@(T("register.cliente_nuevo_explica"))" Size="sm" Error="@_error" OnClose="() => _newCustomer = null">
+        <ChildContent>
+            <div class="form-row">
+                <div class="field" style="max-width:130px">
+                    <label>@T("register.documento")</label>
+                    <select class="select" @bind="nc.DocumentType">
+                        @foreach (var dt in new[] { "DNI", "RUC", "CE", "PASAPORTE" })
+                        {
+                            <option value="@dt">@dt</option>
+                        }
+                    </select>
+                </div>
+                <div class="field"><label>@T("register.numero")</label><input class="control" inputmode="numeric" @bind="nc.DocumentNumber" /></div>
+            </div>
+            <div class="field"><label>@T("register.nombre_o_razon_social")</label><input class="control" @bind="nc.Name" /></div>
+            <div class="field"><label>@T("register.celular_opcional")</label><input class="control" inputmode="tel" @bind="nc.Phone" /></div>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _newCustomer = null">@T("register.cancelar")</button>
+            <button class="btn btn-dark" disabled="@_busy" @onclick="CreateCustomerAsync">@T("register.crear")</button>
+        </Footer>
+    </Modal>
+}
+
+@if (_layaway)
+{
+    <Modal Title="@(T("register.apartar"))" Subtitle="@(T("register.apartar_explica", Fmt.Money(Totals.Total, Currency)))" Size="sm" Error="@_error" OnClose="() => _layaway = false">
+        <ChildContent>
+            <div class="form-row">
+                <div class="field"><label>@T("register.adelanto")</label><input class="control" type="number" min="0" step="0.10" @bind="_deposit" /></div>
+                <div class="field">
+                    <label>@T("register.medio")</label>
+                    <select class="select" @bind="_depositMethod">
+                        @foreach (var m in new[] { PaymentMethods.Cash, PaymentMethods.Card, PaymentMethods.Wallet, PaymentMethods.Transfer })
+                        {
+                            <option value="@m">@Fmt.PaymentMethod(m)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _layaway = false">@T("register.cancelar")</button>
+            <button class="btn btn-dark" disabled="@(_busy || _deposit <= 0)" @onclick="CreateLayawayAsync">@T("register.apartar")</button>
+        </Footer>
+    </Modal>
+}
+
 @if (_paying)
 {
     <Modal Title="@(T("register.cobrar", (Fmt.Money(Totals.Total, Currency))))" Subtitle="@(T("register.puedes_combinar_medios_de_pago"))" Error="@_error" OnClose="() => _paying = false">
@@ -260,8 +332,8 @@ else
                 @foreach (var method in PaymentMethods.All)
                 {
                     <button class="method @(_payments.ContainsKey(method) ? "on" : "")" @onclick="() => ToggleMethod(method)"
-                            disabled="@(method == PaymentMethods.Credit && _customerId is null)"
-                            title="@(method == PaymentMethods.Credit && _customerId is null ? T("register.elige_un_cliente_para_vender") : null)">
+                            disabled="@(method is PaymentMethods.Credit or PaymentMethods.Points && _customerId is null)"
+                            title="@(method is PaymentMethods.Credit or PaymentMethods.Points && _customerId is null ? T("register.elige_un_cliente_para_vender") : null)">
                         <Icon Name="@Fmt.PaymentIcon(method)" Size="22" />@Fmt.PaymentMethod(method)
                     </button>
                 }
@@ -285,6 +357,20 @@ else
                                     <button class="btn btn-sm" @onclick="() => _payments[m] = bill">@bill.ToString("0.##", Fmt.Culture)</button>
                                 }
                             </div>
+                        </div>
+                    }
+                    else if (m == PaymentMethods.GiftCard)
+                    {
+                        <div class="field">
+                            <label>@T("register.codigo_gift_card")</label>
+                            <input class="control" @bind="_references[m]" />
+                        </div>
+                    }
+                    else if (m == PaymentMethods.Points && _points is { } puntosDisp)
+                    {
+                        <div class="field">
+                            <label>@T("register.puntos_disponibles")</label>
+                            <span class="muted">@T("register.puntos_valen", Fmt.Qty(puntosDisp), Fmt.Money(puntosDisp * (_loyalty?.PointValue ?? 0), Currency))</span>
                         </div>
                     }
                     else if (m is PaymentMethods.Card or PaymentMethods.Transfer or PaymentMethods.Wallet)
@@ -408,6 +494,9 @@ else
     private readonly List<CartItem> _cart = [];
     private Guid? _customerId;
     private CustomerHistory? _history;
+    private decimal? _points;
+    private CustomerAccount? _account;
+    private LoyaltySettings? _loyalty;
     private ItemPicker? _picker;
 
     private CartItem? _discountFor, _priceFor;
@@ -450,6 +539,9 @@ else
             _listPrices = await Pos.Sales.ListPricesAsync(_tiles, _customerId);
             // Lo que compró este cliente en todas las tiendas (POS-52).
             _history = _customerId is { } who ? await Pos.Sales.GetCustomerHistoryAsync(who) : null;
+            _points = _customerId is { } p1 ? await Pos.Balances.GetPointsAsync(p1) : null;
+            _account = _customerId is { } p2 ? await Pos.Balances.GetAccountAsync(p2) : null;
+            _loyalty ??= await Pos.Balances.GetSettingsAsync();
             StateHasChanged();
         }
         if (key == _quoteKey)
@@ -582,6 +674,51 @@ else
         line.Override = _price == line.Base ? null : _price;
         line.Discount = Math.Min(line.Discount, line.Quantity * line.UnitPrice);
         _priceFor = null;
+    }
+
+    private sealed class NewCustomer
+    {
+        public string DocumentType { get; set; } = "DNI";
+        public string? DocumentNumber { get; set; }
+        public string Name { get; set; } = "";
+        public string? Phone { get; set; }
+    }
+
+    private NewCustomer? _newCustomer;
+    private bool _layaway;
+    private decimal _deposit;
+    private string _depositMethod = PaymentMethods.Cash;
+
+    /// <summary>Alta rápida en caja (POS-51): el cliente se crea en el hub (sin red, al reconectar) y queda elegido.</summary>
+    private async Task CreateCustomerAsync()
+    {
+        var n = _newCustomer!;
+        _busy = true;
+        Guid id = default;
+        _error = await TryAsync(async () => id = await Pos.Master.CreatePartyAsync(new PartyDraft(n.Name, n.DocumentType == "RUC" ? "Company" : "Person",
+            true, false, n.DocumentType, n.DocumentNumber, null, n.Phone, null)), T("register.cliente_creado"));
+        _busy = false;
+        if (_error is null)
+        {
+            _customers = await Pos.Master.GetPartyOptionsAsync(suppliers: false);
+            _customerId = id;
+            _newCustomer = null;
+        }
+    }
+
+    private async Task CreateLayawayAsync()
+    {
+        _busy = true;
+        string? number = null;
+        var lines = _cart.Where(l => l.Quantity > 0).Select(l => l.ToLine()).ToList();
+        _error = await TryAsync(async () => number = await Pos.Balances.CreateLayawayAsync(_customerId!.Value, lines, _deposit, _depositMethod));
+        _busy = false;
+        if (_error is null)
+        {
+            Toasts.Success(T("register.apartado_creado", number));
+            _layaway = false;
+            Clear();
+        }
     }
 
     private void Clear()

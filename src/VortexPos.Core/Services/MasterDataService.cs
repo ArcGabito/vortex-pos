@@ -82,21 +82,22 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
         await using var c = await Db.OpenAsync(ct);
         await c.ExecAsync("""
             INSERT INTO parties (id, name, trade_name, kind, document_type, document_number, is_customer, is_supplier, email,
-                                 phone, city, is_active, version, is_deleted, pending, updated_at, price_list_id)
+                                 phone, city, is_active, version, is_deleted, pending, updated_at, price_list_id, credit_limit)
             VALUES ($id, $name, $trade, $kind, $doctype, $docnum, $customer, $supplier, $email, $phone, $city, $active,
-                    $version, $deleted, 0, $updated, $list)
+                    $version, $deleted, 0, $updated, $list, $limit)
             ON CONFLICT (id) DO UPDATE SET
                 name = excluded.name, trade_name = excluded.trade_name, kind = excluded.kind,
                 document_type = excluded.document_type, document_number = excluded.document_number,
                 is_customer = excluded.is_customer, is_supplier = excluded.is_supplier, email = excluded.email,
                 phone = excluded.phone, city = excluded.city, is_active = excluded.is_active, version = excluded.version,
-                is_deleted = excluded.is_deleted, pending = 0, updated_at = excluded.updated_at, price_list_id = excluded.price_list_id
+                is_deleted = excluded.is_deleted, pending = 0, updated_at = excluded.updated_at, price_list_id = excluded.price_list_id,
+                credit_limit = excluded.credit_limit
             WHERE excluded.version > parties.version
             """, null, ("$id", change.EntityId), ("$name", d.Name), ("$trade", d.TradeName), ("$kind", d.Kind),
             ("$doctype", d.DocumentType), ("$docnum", d.DocumentNumber), ("$customer", d.IsCustomer),
             ("$supplier", d.IsSupplier), ("$email", d.Email), ("$phone", d.Phone), ("$city", d.Address?.City),
             ("$active", d.IsActive), ("$version", change.Version), ("$deleted", Deleted(change.Operation, d.Meta)),
-            ("$updated", d.Meta.UpdatedAt), ("$list", d.Credit?.PriceListId));
+            ("$updated", d.Meta.UpdatedAt), ("$list", d.Credit?.PriceListId), ("$limit", d.Credit?.CreditLimit));
     }
 
     /// <summary>Lista de precios del hub (<c>price_list</c>): se guarda entera con sus escalas si es más nueva.</summary>

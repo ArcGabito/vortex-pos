@@ -49,12 +49,15 @@ public static class PosPermissions
     /// <summary>Devolver fuera del plazo de la política o sin ticket.</summary>
     public const string ReturnOverride = "sale.return_override";
 
+    /// <summary>Vender al crédito por encima del límite del cliente.</summary>
+    public const string CreditOverride = "sale.credit_override";
+
     public const string Cashier = "cajero";
     public const string Supervisor = "supervisor";
 
     public static readonly PermissionMatrix Matrix = PermissionMatrix.Create(Cashier,
         (Cashier, [Sell, OpenCash, CreateCustomer, Return]),
-        (Supervisor, [Sell, OpenCash, CreateCustomer, DiscountUnlimited, ChangePrice, ManagePromotions, Void, Return, ReturnOverride, CloseCash, ViewAudit, CashMovement, CashReport,
+        (Supervisor, [Sell, OpenCash, CreateCustomer, DiscountUnlimited, ChangePrice, ManagePromotions, Void, Return, ReturnOverride, CreditOverride, CloseCash, ViewAudit, CashMovement, CashReport,
             StoreSettings]));
 
     public static string Describe(string permission) => permission switch
@@ -66,6 +69,7 @@ public static class PosPermissions
         Void => T("permiso.void"),
         Return => T("permiso.return"),
         ReturnOverride => T("permiso.returnoverride"),
+        CreditOverride => T("permiso.creditoverride"),
         OpenCash => T("permiso.opencash"),
         CloseCash => T("permiso.closecash"),
         CreateCustomer => T("permiso.createcustomer"),
