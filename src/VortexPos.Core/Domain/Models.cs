@@ -23,6 +23,9 @@ public interface IPosContext
 
     /// <summary>Supervisor que autorizó con su PIN la acción en curso (null si no hubo autorización).</summary>
     string? AuthorizedBy => null;
+
+    /// <summary>Si la caja está sincronizando con el hub (sin red, la gift card solo se gasta hasta el límite sin conexión).</summary>
+    bool IsOnline => true;
 }
 
 /// <summary>Dato inválido o regla de negocio incumplida: se muestra tal cual al usuario.</summary>
@@ -91,7 +94,16 @@ public static class PaymentMethods
     /// <summary>Venta al crédito: la cobra después el ERP. Requiere cliente.</summary>
     public const string Credit = "credit";
 
-    public static readonly string[] All = [Cash, Card, Wallet, Transfer, Credit];
+    /// <summary>Gift card o vale: la referencia del pago es su código.</summary>
+    public const string GiftCard = "gift_card";
+
+    /// <summary>Canje de puntos del cliente.</summary>
+    public const string Points = "points";
+
+    public static readonly string[] All = [Cash, Card, Wallet, Transfer, Credit, GiftCard, Points];
+
+    /// <summary>Lo abonado a un apartado: paga la venta que lo completa. Solo lo usa el apartado.</summary>
+    public const string Layaway = "layaway";
 
     /// <summary>Crédito de un cambio: lo que vale lo devuelto paga (en parte) lo que se lleva. Solo lo usa <c>ExchangeAsync</c>.</summary>
     public const string Exchange = "exchange";

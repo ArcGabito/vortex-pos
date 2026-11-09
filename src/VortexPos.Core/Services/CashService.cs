@@ -187,6 +187,17 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
         return new PagedResult<CashSessionRow>(rows, total, page, pageSize);
     }
 
+    /// <summary>Movimiento de efectivo de otro servicio (venta de gift card, abono o devolución de un apartado).</summary>
+    internal static Task InsertMovementAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, Guid sessionId, string kind, decimal amount,
+        string reason, string? userName) =>
+        c.ExecAsync("""
+            INSERT INTO cash_movements (id, cash_session_id, kind, amount, reason, created_at, user_name)
+            VALUES ($id, $session, $kind, $amount, $reason, $now, $user)
+            """, tx, ("$id", Guid.NewGuid()), ("$session", sessionId), ("$kind", kind), ("$amount", amount), ("$reason", reason), ("$now", now),
+            ("$user", userName));
+
+    internal static Task<CashSummary> SummaryForAsync(SqliteConnection c, SqliteTransaction? tx, Guid sessionId) => SummaryAsync(c, tx, sessionId);
+
     internal static Task<CashSessionRow?> OpenSessionAsync(SqliteConnection c, SqliteTransaction? tx) =>
         c.FirstOrDefaultAsync($"{SelectSessions} WHERE cs.status = 'open' ORDER BY cs.opened_at DESC LIMIT 1", ReadSession, tx);
 

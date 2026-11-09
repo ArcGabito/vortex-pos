@@ -8,6 +8,9 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Saldos (fase 4b):** puntos que se ganan y canjean en cualquier tienda, gift cards y vales con límite sin red, cuenta
+  corriente con el límite de crédito del cliente, apartados con abonos y alta rápida de cliente en la caja. Pantalla
+  Saldos.
 - **Postventa (fase 4a):** cambios (devolver y llevar otro en una operación, pagando o recibiendo la diferencia),
   reembolso al medio de pago original, política de devoluciones por tienda (plazo; fuera de él o sin ticket, con
   supervisor), historial del cliente en la caja y depósito de caja en el banco (`cash.deposited`, para la tesorería del

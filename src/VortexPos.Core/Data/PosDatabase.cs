@@ -197,5 +197,18 @@ internal static class Schema
         ALTER TABLE cash_movements ADD COLUMN reference TEXT;
         ALTER TABLE cash_movements ADD COLUMN bank TEXT;
         """,
+        // 8: saldos (fase 4b). Libro de puntos y gift cards (balance.moved, de todas las cajas), cobros del ERP por cliente
+        // (cuenta corriente) y el límite de crédito del cliente (se vuelve a leer el feed de datos maestros).
+        """
+        CREATE TABLE balance_movements (
+            id TEXT PRIMARY KEY, kind TEXT NOT NULL, account_id TEXT NOT NULL, code TEXT, customer_id TEXT, delta REAL NOT NULL, sale_id TEXT,
+            site_id TEXT NOT NULL, reason TEXT NOT NULL, expires_on TEXT, created_at TEXT NOT NULL);
+        CREATE INDEX ix_balance_account ON balance_movements (kind, account_id);
+        CREATE INDEX ix_balance_sale ON balance_movements (sale_id);
+        CREATE TABLE customer_payments (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, amount REAL NOT NULL, received_at TEXT NOT NULL);
+        CREATE INDEX ix_customer_payments_customer ON customer_payments (customer_id);
+        ALTER TABLE parties ADD COLUMN credit_limit REAL;
+        DELETE FROM sync_cursors WHERE stream = 'master';
+        """,
     ];
 }

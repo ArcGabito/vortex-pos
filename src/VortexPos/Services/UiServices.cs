@@ -110,6 +110,7 @@ public static class Fmt
 
     public static string Date(DateTimeOffset value) => Local(value).ToString("d MMM yyyy", Culture);
     public static string DateTime(DateTimeOffset value) => Local(value).ToString("d MMM yyyy, HH:mm", Culture);
+    public static string Date(DateOnly value) => value.ToString("d MMM yyyy", Culture);
     public static string Time(DateTimeOffset value) => Local(value).ToString("HH:mm", Culture);
 
     public static string Ago(DateTimeOffset value)
@@ -139,6 +140,10 @@ public static class Fmt
         PaymentMethods.Transfer => T("fmt.transferencia"),
         PaymentMethods.Wallet => T("fmt.yape_plin"),
         PaymentMethods.Credit => T("fmt.credito"),
+        PaymentMethods.GiftCard => T("fmt.gift_card"),
+        PaymentMethods.Points => T("fmt.puntos"),
+        PaymentMethods.Exchange => T("fmt.cambio"),
+        PaymentMethods.Layaway => T("fmt.apartado"),
         _ => method,
     };
 
@@ -148,6 +153,8 @@ public static class Fmt
         PaymentMethods.Card => "card",
         PaymentMethods.Transfer => "bank",
         PaymentMethods.Wallet => "phone",
+        PaymentMethods.GiftCard => "tag",
+        PaymentMethods.Points => "star",
         _ => "clock",
     };
 

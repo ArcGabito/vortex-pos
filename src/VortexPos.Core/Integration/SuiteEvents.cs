@@ -14,6 +14,12 @@ public static class SuiteEvents
     /// <summary>Efectivo de una caja depositado en el banco (lo concilia la tesorería del ERP).</summary>
     public const string CashDeposited = "cash.deposited";
 
+    /// <summary>Movimiento de un saldo del cliente (puntos, gift card): libro replicado entre las cajas.</summary>
+    public const string BalanceMoved = "balance.moved";
+
+    /// <summary>Cobro del ERP: baja lo que el cliente debe en su cuenta corriente.</summary>
+    public const string PaymentReceived = "payment.received";
+
     // Replicación interna entre las cajas de una organización
     public const string PosRecordUpserted = "pos.record.upserted";
 
@@ -76,4 +82,17 @@ public static class PosRecordKinds
 {
     public const string StoreSettings = "store_settings";
     public const string Promotion = "promotion";
+
+    /// <summary>Programa de puntos y gift cards de la organización. Id: <c>org</c>.</summary>
+    public const string Loyalty = "loyalty";
+
+    /// <summary>Apartado con sus abonos. Id: el del apartado.</summary>
+    public const string Layaway = "layaway";
 }
+
+/// <summary><c>balance.moved</c>: un movimiento del libro de saldos (puntos o gift card). El saldo es la suma de los movimientos.</summary>
+public sealed record BalanceMoved(Guid MovementId, string Kind, Guid AccountId, string? Code, Guid? CustomerId, decimal Delta, Guid? SaleId,
+    Guid SiteId, string Reason, DateOnly? ExpiresOn);
+
+/// <summary><c>payment.received</c> del ERP (solo lo que usa el POS: el cliente y el monto).</summary>
+public sealed record PaymentReceived(Guid PaymentId, Guid? CustomerId, decimal Amount, string? CurrencyCode);

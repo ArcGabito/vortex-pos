@@ -49,7 +49,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | POS-22 | Moneda de la empresa con su redondeo | Hecho | 1 |
 | POS-23 | Cobro en otra moneda con el tipo de cambio del hub | Pendiente | 5 |
 | POS-24 | Propinas (por ticket y por mesero) | Pendiente | 5 |
-| POS-25 | Gift cards y vales con saldo | Pendiente | 4 |
+| POS-25 | Gift cards y vales con saldo | Hecho | 4b |
 | POS-26 | Terminales de pago integrados (Niubiz, Izipay, Mercado Pago Point, Stripe Terminal, SumUp) | Pendiente | 5 |
 | POS-27 | Pagos QR con confirmación automática (Yape, Plin, Pix) | Pendiente | 5 |
 
@@ -78,11 +78,11 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | # | Requisito | Estado | Fase |
 |---|---|---|---|
 | POS-50 | Cliente del hub en la venta | Hecho | — |
-| POS-51 | Alta rápida de cliente en caja con documento | Pendiente | 4 |
+| POS-51 | Alta rápida de cliente en caja con documento | Hecho | 4b |
 | POS-52 | Historial del cliente en caja | Hecho | 4a |
-| POS-53 | Programa de puntos (acumular y canjear) | Pendiente | 4 |
-| POS-54 | Cuenta corriente con límite de crédito | Pendiente | 4 |
-| POS-55 | Apartados (separar con adelanto) | Pendiente | 4 |
+| POS-53 | Programa de puntos (acumular y canjear) | Hecho | 4b |
+| POS-54 | Cuenta corriente con límite de crédito | Hecho | 4b |
+| POS-55 | Apartados (separar con adelanto) | Hecho | 4b |
 | POS-56 | Consentimiento para datos y marketing (Ley 29733, LGPD, GDPR) | Pendiente | 4 |
 
 ### Hardware
@@ -275,6 +275,19 @@ el banco (con banco y n.º de operación) que se publica como `cash.deposited` p
 en `PostSaleTests`. Queda para 4b: alta rápida de cliente en caja, puntos, cuenta corriente, apartados, gift cards y
 consentimientos (decisión 2: libro de movimientos replicado con límite sin red, saldo oficial en el hub).
 
+**Estado 4b (2026-11):** hecha. Decisión 2 tomada como se recomendaba: puntos y gift cards son un **libro de
+movimientos** (`balance.moved`, vortex-api#41) que todas las cajas reciben; el saldo es la suma, igual en todas al
+sincronizar. **Puntos**: el cliente gana por lo que paga (no por lo pagado con puntos o gift card) y canjea como medio de
+pago con un mínimo; anular la venta los revierte; ganados en una tienda se canjean en otra. **Gift cards y vales**: se
+venden (el efectivo entra al cajón), tienen vigencia y se gastan como medio de pago con su código; **sin red**, una caja
+solo deja gastar hasta un límite configurable (0 por defecto), así dos cajas desconectadas no la gastan dos veces más allá
+de ese monto. **Cuenta corriente**: la venta al crédito no pasa el límite del cliente (el `credit.creditLimit` del hub)
+contando lo que debe de todas las cajas menos los cobros del ERP (`payment.received`); pasarlo pide supervisor.
+**Apartados**: con cliente y adelanto, abonos en cualquier medio y, al completar, la venta (pago `layaway`); cancelar
+devuelve lo abonado (supervisor). **Alta rápida de cliente** en la caja con documento. Pantalla Saldos y, en la caja,
+los puntos y lo que debe el cliente. Pruebas en `BalancesTests`. Fase 4 terminada salvo POS-56 (consentimientos), que
+espera el bloque de consentimientos en `party` del hub (fase 7 del CRM).
+
 ## Fase 5: pagos y comprobante fiscal · L
 
 - POS-26, POS-27: terminales integrados y QR con confirmación automática (la caja no marca pagado sin respuesta).
@@ -326,7 +339,7 @@ Se activan con los `features` `restaurante` y `autoservicio`.
 | # | Decisión | Recomendación | Antes de |
 |---|---|---|---|
 | 1 | Dónde viven las listas de precios | En el hub, compartidas por POS, ERP y CRM | Fase 3 |
-| 2 | Saldos de gift cards, puntos y crédito sin conexión | Libro de movimientos replicado por eventos y un límite por caja sin red; el hub da el saldo oficial al reconectar | Fase 4 |
+| 2 | Saldos de gift cards, puntos y crédito sin conexión | Tomada (2026-11): libro de movimientos `balance.moved` replicado entre cajas y límite por caja sin red; el saldo es la suma | Fase 4 |
 | 3 | Quién emite el comprobante de la venta | El POS con el paquete de localización (el cliente se lo lleva); el ERP lo registra | Fase 5 |
 | 4 | Restaurante en la misma app o en otra | La misma app con el `feature` `restaurante` | Fase 8 |
 

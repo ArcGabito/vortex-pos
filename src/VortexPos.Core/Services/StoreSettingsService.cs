@@ -66,11 +66,12 @@ public sealed class StoreSettingsService(PosDatabase db, IPosContext context, Ti
     /// Guarda el registro si es más reciente que el que hay (a igual hora, desempata el nombre de quien lo cambió, para
     /// que todas las cajas lleguen al mismo resultado). Devuelve si lo aplicó.
     /// </summary>
-    internal static async Task<bool> UpsertAsync(SqliteConnection c, SqliteTransaction tx, PosRecordUpserted record)
+    /// <param name="force">El cambio hecho en esta caja: gana siempre (aunque tenga la misma hora que el anterior).</param>
+    internal static async Task<bool> UpsertAsync(SqliteConnection c, SqliteTransaction tx, PosRecordUpserted record, bool force = false)
     {
         var current = await c.FirstOrDefaultAsync("SELECT updated_at, updated_by FROM pos_records WHERE kind = $kind AND id = $id",
             r => new { At = r.Time("updated_at"), By = r.StrOrNull("updated_by") }, tx, ("$kind", record.Kind), ("$id", record.Id));
-        if (current is { } existing &&
+        if (!force && current is { } existing &&
             (existing.At > record.UpdatedAt ||
              (existing.At == record.UpdatedAt && string.CompareOrdinal(existing.By, record.UpdatedBy) >= 0)))
             return false;
