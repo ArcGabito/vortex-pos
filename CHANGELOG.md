@@ -8,6 +8,9 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Otra moneda y propinas (fase 5b):** cobro en dólares u otra moneda con el tipo de cambio de compra del hub y vuelto en
+  soles (el efectivo extranjero se cuenta aparte en el arqueo); propinas por ticket y por persona, fuera del total y del
+  comprobante.
 - **Comprobante electrónico en caja (fase 5a, Perú):** boleta o factura numerada en la caja con las series de cada caja,
   ticket con QR y montos fiscales, envío al hub (que firma y envía a SUNAT) en cada sincronización y contingencia sin
   red; nota de crédito al anular (motivo 01) o devolver (07); estado y reintento en Ventas; series en Configuración.

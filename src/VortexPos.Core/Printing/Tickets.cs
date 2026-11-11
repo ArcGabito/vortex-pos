@@ -96,9 +96,15 @@ public static class TicketBuilder
             b.Pair(data.TaxName, Money(sale.Tax));
         }
         b.Pair(T("ticket.total"), Money(sale.Total), bold: true, large: true);
+        if (sale.Tip > 0)
+            b.Pair(T("ticket.propina") + (sale.TipTo is { Length: > 0 } para ? $" ({para})" : ""), Money(sale.Tip));
         b.Blank();
         foreach (var payment in data.Payments)
+        {
             b.Pair(PaymentName(payment.Method) + (payment.Reference is { Length: > 0 } r ? $" ({r})" : ""), Money(payment.Amount));
+            if (payment is { CurrencyCode: { } cur, ForeignAmount: { } amount, ExchangeRate: { } rate })
+                b.Wrap("  " + T("ticket.en_otra_moneda", Currencies.Get(cur).Format(amount, CultureInfo.InvariantCulture), rate.ToString("0.000###", CultureInfo.InvariantCulture)));
+        }
         if (sale.CashReceived is { } received)
         {
             b.Pair(T("ticket.efectivo_recibido"), Money(received));

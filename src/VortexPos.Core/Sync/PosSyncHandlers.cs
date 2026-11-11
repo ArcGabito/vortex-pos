@@ -35,6 +35,7 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
         .OnParties((c, ct) => master.ApplyPartyAsync(c, ct))
         .OnPriceLists((c, ct) => master.ApplyPriceListAsync(c, ct))
         .OnCompany((c, ct) => master.ApplyCompanyAsync(c, ct))
+        .OnExchangeRates((c, ct) => master.ApplyExchangeRateAsync(c, ct))
         .OnEvent(SuiteEvents.SaleCompleted, HandleSaleCompletedAsync)
         .OnEvent(SuiteEvents.SaleVoided, HandleSaleVoidedAsync)
         .OnEvent(SuiteEvents.SaleReturned, HandleSaleReturnedAsync)

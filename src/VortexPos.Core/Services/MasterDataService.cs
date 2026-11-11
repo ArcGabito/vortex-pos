@@ -143,6 +143,39 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
             ("$currency", d.CurrencyCode), ("$rate", d.DefaultTaxRate), ("$tz", d.TimeZone), ("$version", change.Version));
     }
 
+    /// <summary>Tipo de cambio del hub (fase 5b): para cobrar en otra moneda.</summary>
+    public async Task ApplyExchangeRateAsync(VortexMasterChange<VortexExchangeRate> change, CancellationToken ct = default)
+    {
+        var d = change.Data;
+        await using var c = await Db.OpenAsync(ct);
+        await c.ExecAsync("""
+            INSERT INTO exchange_rates (id, date, from_currency, to_currency, rate, buy_rate, sell_rate, version, is_deleted)
+            VALUES ($id, $date, $from, $to, $rate, $buy, $sell, $version, $deleted)
+            ON CONFLICT (id) DO UPDATE SET
+                date = excluded.date, from_currency = excluded.from_currency, to_currency = excluded.to_currency, rate = excluded.rate,
+                buy_rate = excluded.buy_rate, sell_rate = excluded.sell_rate, version = excluded.version, is_deleted = excluded.is_deleted
+            WHERE excluded.version > exchange_rates.version
+            """, null, ("$id", change.EntityId), ("$date", d.Date.ToString("yyyy-MM-dd")), ("$from", d.FromCurrency.ToUpperInvariant()),
+            ("$to", d.ToCurrency.ToUpperInvariant()), ("$rate", d.Rate), ("$buy", d.BuyRate), ("$sell", d.SellRate),
+            ("$version", change.Version), ("$deleted", Deleted(change.Operation, d.Meta)));
+    }
+
+    /// <summary>Monedas en que se puede cobrar hoy (las que tienen tipo de cambio a <paramref name="local"/>) con su tipo de cambio.</summary>
+    public async Task<IReadOnlyList<(string Currency, decimal Rate)>> GetForeignCurrenciesAsync(string local, CancellationToken ct = default)
+    {
+        await using var c = await Db.OpenAsync(ct);
+        var today = await Fx.TodayAsync(c, null, Clock.GetUtcNow());
+        var currencies = await c.QueryAsync("""
+            SELECT DISTINCT from_currency AS cur FROM exchange_rates WHERE is_deleted = 0 AND to_currency = $l
+            UNION SELECT DISTINCT to_currency FROM exchange_rates WHERE is_deleted = 0 AND from_currency = $l
+            """, r => r.Str("cur"), null, ("$l", local.ToUpperInvariant()));
+        var result = new List<(string, decimal)>();
+        foreach (var cur in currencies.Where(x => x != local.ToUpperInvariant()).Order())
+            if (await Fx.BuyRateAsync(c, null, cur, local, today) is { } rate)
+                result.Add((cur, rate));
+        return result;
+    }
+
     private static bool Deleted(VortexChangeOperation operation, VortexMasterMeta meta) =>
         operation == VortexChangeOperation.Deleted || meta.IsDeleted;
 

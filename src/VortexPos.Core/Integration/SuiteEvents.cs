@@ -41,7 +41,7 @@ public static class SuiteEvents
 public sealed record SaleCompleted(
     Guid SaleId, string Number, Guid SiteId, Guid? CustomerId, string CurrencyCode, decimal Subtotal, decimal Tax,
     decimal Total, IReadOnlyList<SaleLine> Lines, IReadOnlyList<SalePayment> Payments, decimal Discount = 0,
-    string? CreatedBy = null, string? Coupon = null, Guid? PriceListId = null, SaleFiscal? Fiscal = null);
+    string? CreatedBy = null, string? Coupon = null, Guid? PriceListId = null, SaleFiscal? Fiscal = null, decimal Tip = 0, string? TipTo = null);
 
 /// <summary>
 /// Comprobante electrónico que emitió la caja (fase 5a): tipo (<c>receipt</c>, <c>invoice</c>, <c>credit_note</c>), serie y
@@ -54,7 +54,9 @@ public sealed record SaleLine(
     bool Taxable = true, string? TaxCode = null, string? Presentation = null, decimal? ListPrice = null,
     Guid? PromotionId = null);
 
-public sealed record SalePayment(string Method, decimal Amount);
+/// <summary>Un pago de la venta; <c>Amount</c> en la moneda de la venta (los pagos suman el total, sin la propina).</summary>
+/// <param name="CurrencyCode">Fase 5b: moneda extranjera en que pagó (null: la de la venta), con lo entregado y el tipo de cambio.</param>
+public sealed record SalePayment(string Method, decimal Amount, string? CurrencyCode = null, decimal? ForeignAmount = null, decimal? ExchangeRate = null);
 
 /// <param name="Fiscal">Nota de crédito (motivo 01, anulación) si la venta tenía comprobante electrónico.</param>
 public sealed record SaleVoided(Guid SaleId, string? Number, string? Reason, SaleFiscal? Fiscal = null);

@@ -131,14 +131,25 @@ public sealed record ItemPresentationRow(Guid ItemId, string Code, string Name, 
 /// <summary>Qué se escaneó: el artículo, cuántas unidades agrega y si vino por presentación o etiqueta de balanza.</summary>
 public sealed record ScanMatch(ItemRow Item, decimal Quantity, ItemPresentationRow? Presentation = null, bool Weighed = false);
 
-public sealed record PaymentDraft(string Method, decimal Amount, string? Reference = null);
+/// <summary>Un pago. En otra moneda (fase 5b), <c>Amount</c> es lo que entrega el cliente en <c>CurrencyCode</c>.</summary>
+/// <param name="CurrencyCode">Moneda extranjera (null: la de la venta). Solo efectivo, tarjeta o transferencia.</param>
+/// <param name="ForeignAmount">Ya convertido: lo entregado en la moneda extranjera.</param>
+/// <param name="ExchangeRate">Ya convertido: el tipo de cambio de compra del hub con que se convirtió.</param>
+/// <param name="ChangeLocal">Ya convertido: el vuelto en moneda local que salió por este pago en efectivo extranjero.</param>
+public sealed record PaymentDraft(string Method, decimal Amount, string? Reference = null, string? CurrencyCode = null, decimal? ForeignAmount = null,
+    decimal? ExchangeRate = null, decimal ChangeLocal = 0)
+{
+    public static readonly string[] ForeignMethods = [PaymentMethods.Cash, PaymentMethods.Card, PaymentMethods.Transfer];
+}
 
 /// <summary>Lo que se cobra en caja. En efectivo, <c>Amount</c> es lo que entrega el cliente (puede haber vuelto).</summary>
 /// <param name="Coupon">Cupón ingresado (activa las promociones de ese cupón).</param>
 /// <param name="TicketDiscount">Descuento manual a todo el ticket (se reparte entre las líneas); más del 10 % necesita permiso.</param>
 /// <param name="FiscalType">Comprobante electrónico: <c>receipt</c> (boleta, por defecto) o <c>invoice</c> (factura, cliente con RUC).</param>
+/// <param name="Tip">Propina (fase 5b): se cobra con los pagos pero no es parte del total ni del comprobante.</param>
+/// <param name="TipTo">Para quién es la propina (mesero, repartidor); sin dato, para el cajero.</param>
 public sealed record SaleDraft(IReadOnlyList<CartLine> Lines, IReadOnlyList<PaymentDraft> Payments, Guid? CustomerId = null, Guid? SiteId = null,
-    string? Coupon = null, decimal TicketDiscount = 0, string? FiscalType = null);
+    string? Coupon = null, decimal TicketDiscount = 0, string? FiscalType = null, decimal Tip = 0, string? TipTo = null);
 
 /// <summary>Cómo queda una línea agrupada (artículo, presentación y precio) con sus descuentos.</summary>
 /// <param name="RequestedPrice">El precio que mandó la caja (null: el de la lista o del artículo).</param>
@@ -168,7 +179,8 @@ public sealed record SaleRow(
     Guid Id, string Number, string Origin, Guid SiteId, string? SiteName, Guid? CustomerId, string? CustomerName, string Status,
     string CurrencyCode, decimal Subtotal, decimal Tax, decimal Discount, decimal Total, decimal? CashReceived,
     decimal? ChangeGiven, DateTimeOffset CreatedAt, string? UserName, DateTimeOffset? VoidedAt, string? VoidReason,
-    string? InvoiceNumber, decimal Returned, int Items, string? FiscalKind = null, string? FiscalNumber = null, string? FiscalStatus = null)
+    string? InvoiceNumber, decimal Returned, int Items, string? FiscalKind = null, string? FiscalNumber = null, string? FiscalStatus = null,
+    decimal Tip = 0, string? TipTo = null)
 {
     public bool CanVoid => Status == SaleStatuses.Completed && Returned == 0;
     public bool CanReturn => Status == SaleStatuses.Completed && Returned < Total;
@@ -181,7 +193,9 @@ public sealed record SaleLineRow(
     public decimal Returnable => Quantity - ReturnedQty;
 }
 
-public sealed record PaymentRow(string Method, decimal Amount, string? Reference);
+/// <param name="Amount">En la moneda de la venta.</param>
+public sealed record PaymentRow(string Method, decimal Amount, string? Reference, string? CurrencyCode = null, decimal? ForeignAmount = null,
+    decimal? ExchangeRate = null);
 
 public sealed record SaleQuery(
     string? Search = null, Guid? SiteId = null, string? Status = null, DateOnly? From = null, DateOnly? To = null, int Page = 1,
@@ -208,7 +222,8 @@ public sealed record CashSessionRow(
 /// <summary>Arqueo de un turno: lo que debería haber en el cajón y lo cobrado por cada medio.</summary>
 public sealed record CashSummary(
     decimal OpeningFloat, decimal CashSales, decimal CashRefunds, decimal ExpectedCash, IReadOnlyDictionary<string, decimal> ByMethod,
-    int Sales, decimal SalesTotal, decimal CashIn = 0, decimal CashOut = 0);
+    int Sales, decimal SalesTotal, decimal CashIn = 0, decimal CashOut = 0, IReadOnlyDictionary<string, decimal>? ForeignCash = null,
+    decimal Tips = 0, IReadOnlyDictionary<string, decimal>? TipsByPerson = null);
 
 public static class CashMovementKinds
 {
