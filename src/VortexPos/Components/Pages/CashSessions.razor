@@ -53,6 +53,15 @@
                 {
                     <StatTile Icon="cash" Label="@(T("cashsessions.cobrado_en_efectivo"))" Value="@Fmt.Money(sum.CashSales, Currency)" Hint="@(sum.CashRefunds > 0 ? T("cashsessions.en_devoluciones", (Fmt.Money(sum.CashRefunds, Currency))) : null)" />
                     <StatTile Icon="wallet" Label="@(T("cashsessions.efectivo_esperado"))" Value="@Fmt.Money(sum.ExpectedCash, Currency)" />
+                    @foreach (var extranjera in sum.ForeignCash ?? new Dictionary<string, decimal>())
+                    {
+                        <StatTile Icon="cash" Label="@(T("cashsessions.efectivo_en", extranjera.Key))" Value="@Fmt.Money(extranjera.Value, extranjera.Key)" />
+                    }
+                }
+                @if (sum.Tips > 0)
+                {
+                    <StatTile Icon="star" Label="@(T("cashsessions.propinas"))" Value="@Fmt.Money(sum.Tips, Currency)"
+                              Hint="@string.Join(" · ", (sum.TipsByPerson ?? new Dictionary<string, decimal>()).Select(x => $"{x.Key} {Fmt.Money(x.Value, Currency)}"))" />
                 }
             </div>
             @if (sum.ByMethod.Count > 0 || _movements.Count > 0)
@@ -199,6 +208,10 @@
             {
                 <dl class="totals">
                     <dt>@T("cashsessions.efectivo_esperado")</dt><dd>@Fmt.Money(cs.ExpectedCash, Currency)</dd>
+                    @foreach (var aparte in cs.ForeignCash ?? new Dictionary<string, decimal>())
+                    {
+                        <dt>@T("cashsessions.efectivo_en", aparte.Key)</dt><dd>@Fmt.Money(aparte.Value, aparte.Key)</dd>
+                    }
                 </dl>
             }
             else

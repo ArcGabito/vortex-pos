@@ -68,7 +68,54 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         Require(!paymentsRequired || draft.Payments.Count > 0, T("error.elige_como_paga_el_cliente"));
         Require(draft.Payments.All(p => PaymentMethods.All.Contains(p.Method)), T("error.medio_de_pago_desconocido"));
         Require(draft.Payments.All(p => p.Amount > 0), T("error.los_montos_de_pago_deben"));
-        Require(draft.Payments.Count(p => p.Method == PaymentMethods.Cash) <= 1, T("error.registra_el_efectivo_en_un"));
+        Require(draft.Payments.Where(p => p.Method == PaymentMethods.Cash).GroupBy(p => Foreign(p.CurrencyCode)).All(g => g.Count() == 1),
+            T("error.registra_el_efectivo_en_un"));
+        Require(draft.Payments.Count(p => p.Method == PaymentMethods.Cash && Foreign(p.CurrencyCode) is not null) <= 1, T("error.una_moneda_extranjera_en_efectivo"));
+        Require(draft.Payments.All(p => Foreign(p.CurrencyCode) is null || PaymentDraft.ForeignMethods.Contains(p.Method)), T("error.medio_no_admite_otra_moneda"));
+        Require(draft.Tip >= 0, T("error.propina_negativa"));
+        Require(draft.TipTo is null || draft.TipTo.Length <= 80, T("error.propina_para"));
+    }
+
+    private static string? Foreign(string? currency) => string.IsNullOrWhiteSpace(currency) ? null : currency.Trim().ToUpperInvariant();
+
+    /// <summary>
+    /// Pagos en otra moneda (fase 5b) convertidos a la de la venta con el tipo de compra del hub de hoy: <c>Amount</c> pasa a
+    /// moneda local y se guardan lo entregado y el tipo de cambio. Un pago en la moneda de la venta queda igual.
+    /// </summary>
+    private static async Task<List<PaymentDraft>> ConvertAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now,
+        IEnumerable<PaymentDraft> drafts, string currency)
+    {
+        var result = new List<PaymentDraft>();
+        DateOnly? today = null;
+        foreach (var p in drafts)
+        {
+            var foreign = Foreign(p.CurrencyCode);
+            if (foreign is null || foreign == currency)
+            {
+                result.Add(p with { CurrencyCode = null });
+                continue;
+            }
+            today ??= await Fx.TodayAsync(c, tx, now);
+            var rate = await Fx.BuyRateAsync(c, tx, foreign, currency, today.Value);
+            Require(rate is not null, T("error.sin_tipo_de_cambio", foreign, currency));
+            result.Add(p with { Amount = Currencies.Get(currency).Round(p.Amount * rate!.Value), CurrencyCode = foreign, ForeignAmount = p.Amount, ExchangeRate = rate });
+        }
+        return result;
+    }
+
+    /// <summary>Los pagos sin la propina, para el evento (suman el total): se descuenta del efectivo y luego del resto.</summary>
+    private static List<PaymentDraft> WithoutTip(IReadOnlyList<PaymentDraft> payments, decimal tip)
+    {
+        var left = tip;
+        var result = new List<PaymentDraft>();
+        foreach (var p in payments.OrderBy(p => p.Method == PaymentMethods.Cash && p.CurrencyCode is null ? 0 : p.Method == PaymentMethods.Cash ? 1 : 2))
+        {
+            var take = Math.Min(left, p.Amount);
+            left -= take;
+            if (p.Amount - take > 0)
+                result.Add(p with { Amount = p.Amount - take });
+        }
+        return result;
     }
 
     /// <summary>La venta que completa un apartado: sus líneas, pagadas con lo abonado (pago <c>layaway</c>).</summary>
@@ -89,20 +136,23 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             var (lines, applied, priceChanges, priceList) = await PriceAsync(c, tx, now, draft, siteId);
             var currency = lines[0].Item.CurrencyCode;
             var totals = Totals(lines.Select(l => (l.Total, l.Discount, l.Item.TaxCode)), regime, currency);
-            var drafts = draft.Payments.ToList();
+            var drafts = await ConvertAsync(c, tx, now, draft.Payments, currency);
+            var tip = Currencies.Get(currency).Round(draft.Tip);
             if (exchangeCredit is > 0 and var credit)
                 drafts.Insert(0, new PaymentDraft(PaymentMethods.Exchange, Math.Min(credit, totals.Total)));
             if (layawayCredit is > 0 and var deposits)
                 drafts.Insert(0, new PaymentDraft(PaymentMethods.Layaway, Math.Min(deposits, totals.Total)));
-            var payments = Settle(drafts, totals.Total, draft.CustomerId, out var cashReceived, out var change);
+            var payments = Settle(drafts, totals.Total + tip, draft.CustomerId, out var cashReceived, out var change);
+            var tipTo = tip > 0 ? Clean(draft.TipTo) ?? Context.UserName : null;
 
             var saleId = id ?? Guid.NewGuid();
             var number = await DocumentNumbers.NextAsync(c, tx, DocumentNumbers.Sale, Context.DeviceTag);
             var completed = new SaleCompleted(saleId, number, siteId, draft.CustomerId, currency, totals.Subtotal, totals.Tax, totals.Total,
                 lines.Select(l => new SaleLine(l.Item.Id, l.Item.Sku, l.Quantity, l.UnitPrice, l.Discount, l.Total, l.Item.Name,
                     regime.IsTaxed(l.Item.TaxCode), TaxCategories.Normalize(l.Item.TaxCode), l.Presentation, l.ListPrice, l.PromotionId)).ToList(),
-                payments.Select(p => new SalePayment(p.Method, p.Amount)).ToList(), totals.Discount, Context.UserName,
-                string.IsNullOrWhiteSpace(draft.Coupon) ? null : draft.Coupon.Trim().ToUpperInvariant(), priceList?.Id);
+                WithoutTip(payments, tip).Select(p => new SalePayment(p.Method, p.Amount, p.CurrencyCode, p.ForeignAmount, p.ExchangeRate)).ToList(),
+                totals.Discount, Context.UserName, string.IsNullOrWhiteSpace(draft.Coupon) ? null : draft.Coupon.Trim().ToUpperInvariant(), priceList?.Id,
+                Tip: tip, TipTo: tipTo);
 
             // Saldos del cliente (fase 4b): gift cards y puntos que paga, crédito con su límite y puntos que gana.
             var balances = new BalanceService(Db, Context, Clock);
@@ -120,7 +170,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             }
             if (draft.CustomerId is { } buyer)
                 await balances.EarnPointsAsync(c, tx, now, buyer,
-                    payments.Where(p => p.Method is not (PaymentMethods.Points or PaymentMethods.GiftCard or PaymentMethods.Exchange)).Sum(p => p.Amount),
+                    payments.Where(p => p.Method is not (PaymentMethods.Points or PaymentMethods.GiftCard or PaymentMethods.Exchange)).Sum(p => p.Amount) - tip,
                     saleId, siteId);
 
             // Comprobante electrónico (fase 5a): numerado aquí, lo firma y lo envía el hub; sin red sale en contingencia.
@@ -131,6 +181,9 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleCompleted, completed, subjectType: "sale", subjectId: number, id: saleId);
             if (totals.Discount > 0)
                 await AuditAsync(c, tx, now, AuditActions.Discount, "sale", saleId, number, $"Descuentos por {totals.Discount:0.##} {currency}");
+            if (payments.FirstOrDefault(p => p.CurrencyCode is not null) is { } fx)
+                await AuditAsync(c, tx, now, "payment.foreign_currency", "sale", saleId, number,
+                    string.Join("; ", payments.Where(p => p.CurrencyCode is not null).Select(p => $"{p.Method} {p.ForeignAmount:0.##} {p.CurrencyCode} a {p.ExchangeRate:0.####}")));
             if (priceChanges.Count > 0)
                 await AuditAsync(c, tx, now, AuditActions.PriceOverride, "sale", saleId, number, string.Join("; ", priceChanges));
             if (applied.Count > 0)
@@ -271,6 +324,11 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     /// Reparte el pago: lo que no es efectivo se aplica tal cual (no puede pasarse del total) y el efectivo cubre el
     /// resto; si el cliente entrega más, hay vuelto.
     /// </summary>
+    /// <summary>
+    /// Reparte lo cobrado: lo que no es efectivo no puede pasar de lo que se debe; el efectivo (en moneda local y, como mucho,
+    /// en una extranjera ya convertida) cubre el resto y el vuelto sale en moneda local. Primero se aplica el efectivo
+    /// extranjero; si cubre más de lo que falta, su vuelto queda en <see cref="PaymentDraft.ChangeLocal"/> (sale del cajón local).
+    /// </summary>
     private static List<PaymentDraft> Settle(IReadOnlyList<PaymentDraft> drafts, decimal total, Guid? customerId,
         out decimal? cashReceived, out decimal change)
     {
@@ -279,10 +337,11 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         var nonCashTotal = nonCash.Sum(p => p.Amount);
         Require(nonCashTotal <= total, T("error.los_pagos_con_tarjeta_transferencia"));
 
-        var cash = drafts.FirstOrDefault(p => p.Method == PaymentMethods.Cash);
+        var local = drafts.FirstOrDefault(p => p.Method == PaymentMethods.Cash && p.CurrencyCode is null);
+        var foreign = drafts.FirstOrDefault(p => p.Method == PaymentMethods.Cash && p.CurrencyCode is not null);
         var cashDue = total - nonCashTotal;
         var result = nonCash.Select(p => p with { Reference = Clean(p.Reference) }).ToList();
-        if (cash is null)
+        if (local is null && foreign is null)
         {
             Require(cashDue == 0, T("error.falta_cobrar", cashDue));
             cashReceived = null;
@@ -290,11 +349,17 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             return result;
         }
 
-        Require(cash.Amount >= cashDue, T("error.el_efectivo_no_alcanza_faltan", (cashDue - cash.Amount)));
-        cashReceived = cash.Amount;
-        change = cash.Amount - cashDue;
-        if (cashDue > 0)
-            result.Insert(0, new PaymentDraft(PaymentMethods.Cash, cashDue));
+        var tendered = (local?.Amount ?? 0) + (foreign?.Amount ?? 0);
+        Require(tendered >= cashDue, T("error.el_efectivo_no_alcanza_faltan", (cashDue - tendered)));
+        cashReceived = tendered;
+        change = tendered - cashDue;
+        var foreignApplied = Math.Min(foreign?.Amount ?? 0, cashDue);
+        var localApplied = cashDue - foreignApplied;
+        Require(foreign is null || foreignApplied > 0, T("error.el_efectivo_extranjero_sobra"));
+        if (localApplied > 0)
+            result.Insert(0, new PaymentDraft(PaymentMethods.Cash, localApplied));
+        if (foreign is not null)
+            result.Insert(0, foreign with { Amount = foreignApplied, ChangeLocal = foreign.Amount - foreignApplied, Reference = null });
         return result;
     }
 
@@ -592,7 +657,8 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     {
         await using var c = await Db.OpenAsync(ct);
         return await c.QueryAsync("SELECT * FROM sale_payments WHERE sale_id = $id ORDER BY line_no",
-            r => new PaymentRow(r.Str("method"), r.Dec("amount"), r.StrOrNull("reference")), null, ("$id", saleId));
+            r => new PaymentRow(r.Str("method"), r.Dec("amount"), r.StrOrNull("reference"), r.StrOrNull("currency_code"), r.DecOrNull("foreign_amount"),
+                r.DecOrNull("exchange_rate")), null, ("$id", saleId));
     }
 
     /// <summary>Todo lo que lleva el ticket de una venta (para imprimirlo o reimprimirlo).</summary>
@@ -602,7 +668,8 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         if (await GetSaleAsync(c, null, saleId) is not { } sale)
             return null;
         var payments = await c.QueryAsync("SELECT * FROM sale_payments WHERE sale_id = $id ORDER BY line_no",
-            r => new PaymentRow(r.Str("method"), r.Dec("amount"), r.StrOrNull("reference")), null, ("$id", saleId));
+            r => new PaymentRow(r.Str("method"), r.Dec("amount"), r.StrOrNull("reference"), r.StrOrNull("currency_code"), r.DecOrNull("foreign_amount"),
+                r.DecOrNull("exchange_rate")), null, ("$id", saleId));
         var company = await c.FirstOrDefaultAsync("SELECT * FROM company WHERE id = 1", r => new CompanyInfo(
             r.Str("legal_name"), r.StrOrNull("trade_name"), r.StrOrNull("tax_id"), r.Str("country_code"), r.Str("currency_code"),
             r.DecOrNull("default_tax_rate"), r.StrOrNull("time_zone")));
@@ -690,7 +757,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         if (await c.ScalarAsync<long>("SELECT COUNT(*) FROM sales WHERE id = $id", tx, ("$id", e.SaleId)) > 0)
             return;
         await InsertSaleAsync(c, tx, e, "remote", null, occurredAt, null, null,
-            (e.Payments ?? []).Select(p => new PaymentDraft(p.Method, p.Amount)).ToList());
+            (e.Payments ?? []).Select(p => new PaymentDraft(p.Method, p.Amount, null, p.CurrencyCode, p.ForeignAmount, p.ExchangeRate)).ToList());
     }
 
     internal static async Task ApplyRemoteVoidAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset occurredAt, SaleVoided e)
@@ -757,7 +824,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         r.StrOrNull("customer_name"), r.Str("status"), r.Str("currency_code"), r.Dec("subtotal"), r.Dec("tax"), r.Dec("discount"),
         r.Dec("total"), r.DecOrNull("cash_received"), r.DecOrNull("change_given"), r.Time("created_at"), r.StrOrNull("user_name"),
         r.TimeOrNull("voided_at"), r.StrOrNull("void_reason"), r.StrOrNull("invoice_number"), r.Dec("returned"), (int)r.Dec("items"),
-        r.StrOrNull("fiscal_kind"), r.StrOrNull("fiscal_number"), r.StrOrNull("fiscal_status"));
+        r.StrOrNull("fiscal_kind"), r.StrOrNull("fiscal_number"), r.StrOrNull("fiscal_status"), r.Dec("tip"), r.StrOrNull("tip_to"));
 
     private static async Task<List<SaleLineRow>> LinesAsync(SqliteConnection c, SqliteTransaction? tx, Guid saleId) =>
         await c.QueryAsync("SELECT * FROM sale_lines WHERE sale_id = $id ORDER BY line_no", r => new SaleLineRow(
@@ -797,9 +864,13 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         foreach (var p in payments)
         {
             await c.ExecAsync("""
-                INSERT INTO sale_payments (sale_id, line_no, method, amount, reference) VALUES ($sale, $no, $method, $amount, $ref)
-                """, tx, ("$sale", e.SaleId), ("$no", ++paymentNo), ("$method", p.Method), ("$amount", p.Amount), ("$ref", p.Reference));
+                INSERT INTO sale_payments (sale_id, line_no, method, amount, reference, currency_code, foreign_amount, exchange_rate, change_local)
+                VALUES ($sale, $no, $method, $amount, $ref, $cur, $foreign, $rate, $changeLocal)
+                """, tx, ("$sale", e.SaleId), ("$no", ++paymentNo), ("$method", p.Method), ("$amount", p.Amount), ("$ref", p.Reference),
+                ("$cur", p.CurrencyCode), ("$foreign", p.ForeignAmount), ("$rate", p.ExchangeRate), ("$changeLocal", p.ChangeLocal));
         }
+        if (e.Tip > 0)
+            await c.ExecAsync("UPDATE sales SET tip = $tip, tip_to = $to WHERE id = $id", tx, ("$id", e.SaleId), ("$tip", e.Tip), ("$to", e.TipTo));
     }
 
     private static Task MarkVoidedAsync(SqliteConnection c, SqliteTransaction tx, Guid saleId, DateTimeOffset at, string? reason) =>

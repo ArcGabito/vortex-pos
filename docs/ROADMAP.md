@@ -47,8 +47,8 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | POS-20 | Efectivo con vuelto, tarjeta, billeteras, transferencia y crédito, combinables | Hecho | — |
 | POS-21 | Impuestos por país, precios con impuesto incluido o sumado (EE. UU.) | Hecho | 1 |
 | POS-22 | Moneda de la empresa con su redondeo | Hecho | 1 |
-| POS-23 | Cobro en otra moneda con el tipo de cambio del hub | Pendiente | 5 |
-| POS-24 | Propinas (por ticket y por mesero) | Pendiente | 5 |
+| POS-23 | Cobro en otra moneda con el tipo de cambio del hub | Hecho | 5b |
+| POS-24 | Propinas (por ticket y por mesero) | Hecho | 5b |
 | POS-25 | Gift cards y vales con saldo | Hecho | 4b |
 | POS-26 | Terminales de pago integrados (Niubiz, Izipay, Mercado Pago Point, Stripe Terminal, SumUp) | Pendiente | 5 |
 | POS-27 | Pagos QR con confirmación automática (Yape, Plin, Pix) | Pendiente | 5 |
@@ -308,6 +308,14 @@ en la siguiente sincronización. **Anular** emite la nota de crédito con motivo
 (por enviar, aceptado, con observaciones, rechazado, con error) se ve en Ventas, con reintento. Reglas: boleta desde
 S/ 700 identifica al cliente; RUC con dígito verificador. Pruebas en `FiscalTests`. Siguen: 5b (otra moneda y propinas)
 y 5c (terminales de pago y QR con confirmación); la impresora fiscal (POS-102) no aplica en Perú.
+
+**Estado 5b (2026-11):** hecha. **Otra moneda**: la caja lee los tipos de cambio del hub (`exchange_rate`) y en el cobro
+cada pago en efectivo, tarjeta o transferencia puede ir en otra moneda (efectivo, en una sola por venta). Se convierte con
+el tipo de **compra** del día (o el último anterior; sin él, el de referencia) y el **vuelto sale en soles**. El efectivo
+extranjero no entra al cajón en soles: el arqueo lo muestra aparte, en su moneda. El ticket imprime lo entregado y el T.C.
+**Propinas**: monto o 5/10/15 % y para quién (sin dato, el cajero); se cobran con los pagos pero quedan fuera del total y
+del comprobante, y el turno muestra las propinas por persona. `sale.completed` agrega `tip`, `tipTo` y en cada pago
+`currencyCode`, `foreignAmount` y `exchangeRate`. Pruebas en `CurrencyAndTipsTests`.
 
 ## Fase 6: inventario en tienda y omnicanal · M
 

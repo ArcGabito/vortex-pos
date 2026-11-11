@@ -72,6 +72,9 @@ descuentos manuales). Desde la 3c trae `priceListId` (la lista de precios que ri
 precio de esa lista cuando difiere del precio del artículo. Desde la 5a, `sale.completed` trae `fiscal` (`{ type, series,
 number }`: la boleta o factura electrónica que emitió la caja) y `sale.voided` y `sale.returned` la nota de crédito que
 emitieron; el ERP la registra y no vuelve a facturar la venta.
+Desde la 5b, cada pago de `payments` puede traer `currencyCode`, `foreignAmount` y `exchangeRate` (cobrado en otra moneda;
+`amount` sigue en la moneda de la venta) y la venta trae `tip` y `tipTo` (propina, fuera de `total` y del comprobante; los
+`payments` suman el total sin la propina).
 
 ### Comprobante electrónico (fase 5a)
 

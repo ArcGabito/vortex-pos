@@ -225,5 +225,21 @@ internal static class Schema
         ALTER TABLE items ADD COLUMN unit_code TEXT;
         DELETE FROM sync_cursors WHERE stream = 'master';
         """,
+        // 10: otra moneda y propinas (fase 5b). Tipos de cambio del hub (se vuelve a leer el feed de datos maestros); en cada
+        // pago, la moneda, el monto en esa moneda, el tipo de cambio y el vuelto en moneda local que salió por él; la propina
+        // de la venta (fuera del total y del comprobante) y para quién.
+        """
+        CREATE TABLE exchange_rates (
+            id TEXT PRIMARY KEY, date TEXT NOT NULL, from_currency TEXT NOT NULL, to_currency TEXT NOT NULL, rate REAL NOT NULL,
+            buy_rate REAL, sell_rate REAL, version INTEGER NOT NULL, is_deleted INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX ix_exchange_rates_pair ON exchange_rates (from_currency, to_currency, date);
+        ALTER TABLE sale_payments ADD COLUMN currency_code TEXT;
+        ALTER TABLE sale_payments ADD COLUMN foreign_amount REAL;
+        ALTER TABLE sale_payments ADD COLUMN exchange_rate REAL;
+        ALTER TABLE sale_payments ADD COLUMN change_local REAL NOT NULL DEFAULT 0;
+        ALTER TABLE sales ADD COLUMN tip REAL NOT NULL DEFAULT 0;
+        ALTER TABLE sales ADD COLUMN tip_to TEXT;
+        DELETE FROM sync_cursors WHERE stream = 'master';
+        """,
     ];
 }

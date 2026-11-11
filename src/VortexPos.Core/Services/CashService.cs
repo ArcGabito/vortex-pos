@@ -235,8 +235,22 @@ public sealed class CashService(PosDatabase db, IPosContext context, TimeProvide
             r => (Kind: r.Str("kind"), Amount: r.Dec("amount")), tx, ("$id", sessionId))).ToDictionary(x => x.Kind, x => x.Amount);
         var cashIn = movements.GetValueOrDefault(CashMovementKinds.In);
         var cashOut = movements.GetValueOrDefault(CashMovementKinds.Out) + movements.GetValueOrDefault(CashMovementKinds.Deposit);
-        var cash = byMethod.GetValueOrDefault(PaymentMethods.Cash);
-        return new CashSummary(opening, cash, refunds, opening + cash - refunds + cashIn - cashOut, byMethod, sales[0].Count,
-            sales[0].Total, cashIn, cashOut);
+        // Efectivo en moneda local: lo cobrado en soles menos el vuelto que salió por pagos en moneda extranjera (fase 5b). Lo
+        // extranjero se cuenta aparte, en su moneda.
+        var cashLocal = await c.ScalarAsync<decimal>("""
+            SELECT COALESCE(SUM(CASE WHEN p.currency_code IS NULL THEN p.amount ELSE -p.change_local END), 0)
+            FROM sale_payments p JOIN sales s ON s.id = p.sale_id
+            WHERE s.cash_session_id = $id AND s.status = 'completed' AND p.method = 'cash'
+            """, tx, ("$id", sessionId));
+        var foreign = (await c.QueryAsync("""
+            SELECT p.currency_code AS cur, SUM(p.foreign_amount) AS amount FROM sale_payments p JOIN sales s ON s.id = p.sale_id
+            WHERE s.cash_session_id = $id AND s.status = 'completed' AND p.method = 'cash' AND p.currency_code IS NOT NULL GROUP BY p.currency_code
+            """, r => (Currency: r.Str("cur"), Amount: r.Dec("amount")), tx, ("$id", sessionId))).ToDictionary(x => x.Currency, x => x.Amount);
+        var tips = (await c.QueryAsync("""
+            SELECT COALESCE(tip_to, user_name, '—') AS who, SUM(tip) AS amount FROM sales
+            WHERE cash_session_id = $id AND status = 'completed' AND tip > 0 GROUP BY COALESCE(tip_to, user_name, '—')
+            """, r => (Who: r.Str("who"), Amount: r.Dec("amount")), tx, ("$id", sessionId))).ToDictionary(x => x.Who, x => x.Amount);
+        return new CashSummary(opening, cashLocal, refunds, opening + cashLocal - refunds + cashIn - cashOut, byMethod, sales[0].Count,
+            sales[0].Total, cashIn, cashOut, foreign, tips.Values.Sum(), tips);
     }
 }

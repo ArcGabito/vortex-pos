@@ -359,8 +359,25 @@ else
                 <div class="form-row">
                     <div class="field">
                         <label>@(m == PaymentMethods.Cash ? T("register.efectivo_recibido") : Fmt.PaymentMethod(m))</label>
-                        <input class="control" type="number" min="0" step="0.10" value="@amount"
-                               @onchange="e => _payments[m] = decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0" />
+                        <div style="display:flex;gap:6px">
+                            <input class="control" type="number" min="0" step="0.10" value="@amount"
+                                   @onchange="e => _payments[m] = decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0" />
+                            @if (_currencies.Count > 0 && PaymentDraft.ForeignMethods.Contains(m))
+                            {
+                                <select class="select" style="width:auto" value="@(_payCurrency.GetValueOrDefault(m) ?? "")" @onchange="e => ChangeCurrency(m, e.Value?.ToString())"
+                                        aria-label="@(T("register.moneda"))">
+                                    <option value="">@Currency</option>
+                                    @foreach (var opcionMoneda in _currencies)
+                                    {
+                                        <option value="@opcionMoneda.Currency">@opcionMoneda.Currency</option>
+                                    }
+                                </select>
+                            }
+                        </div>
+                        @if (_payCurrency.GetValueOrDefault(m) is { } monedaPago && Rate(monedaPago) is { } tcPago)
+                        {
+                            <span class="hint">@T("register.equivale", Fmt.Money(Local(m, amount), Currency), tcPago.ToString("0.000###", Fmt.Culture))</span>
+                        }
                     </div>
                     @if (m == PaymentMethods.Cash)
                     {
@@ -397,22 +414,46 @@ else
                     }
                 </div>
             }
+            <div class="form-row">
+                <div class="field">
+                    <label>@T("register.propina")</label>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                        <input class="control" style="width:110px" type="number" min="0" step="0.50" value="@_tip"
+                               @onchange="e => _tip = decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var tv) && tv > 0 ? tv : 0" />
+                        @foreach (var pct in new[] { 5, 10, 15 })
+                        {
+                            <button class="btn btn-sm" @onclick="() => _tip = Math.Round(Totals.Total * pct / 100m, 1)">@pct %</button>
+                        }
+                    </div>
+                </div>
+                @if (_tip > 0)
+                {
+                    <div class="field">
+                        <label>@T("register.propina_para")</label>
+                        <input class="control" maxlength="80" placeholder="@Session.UserName" @bind="_tipTo" />
+                    </div>
+                }
+            </div>
             <dl class="totals">
                 <dt>@T("register.total")</dt><dd>@Fmt.Money(Totals.Total, Currency)</dd>
-                <dt>@T("register.pagado")</dt><dd>@Fmt.Money(Paid, Currency)</dd>
-                @if (Paid >= Totals.Total)
+                @if (_tip > 0)
                 {
-                    <dt class="grand">@T("register.vuelto")</dt><dd class="grand good-text">@Fmt.Money(Paid - Totals.Total, Currency)</dd>
+                    <dt>@T("register.propina")</dt><dd>@Fmt.Money(_tip, Currency)</dd>
+                }
+                <dt>@T("register.pagado")</dt><dd>@Fmt.Money(Paid, Currency)</dd>
+                @if (Paid >= Due)
+                {
+                    <dt class="grand">@T("register.vuelto")</dt><dd class="grand good-text">@Fmt.Money(Paid - Due, Currency)</dd>
                 }
                 else
                 {
-                    <dt class="grand">@T("register.falta")</dt><dd class="grand warn-text">@Fmt.Money(Totals.Total - Paid, Currency)</dd>
+                    <dt class="grand">@T("register.falta")</dt><dd class="grand warn-text">@Fmt.Money(Due - Paid, Currency)</dd>
                 }
             </dl>
         </ChildContent>
         <Footer>
             <button class="btn" @onclick="() => _paying = false">@T("register.volver")</button>
-            <button class="btn btn-dark" disabled="@(_busy || Paid < Totals.Total)" @onclick="ChargeAsync"><Icon Name="check" Size="18" />@T("register.confirmar_cobro")</button>
+            <button class="btn btn-dark" disabled="@(_busy || Paid < Due)" @onclick="ChargeAsync"><Icon Name="check" Size="18" />@T("register.confirmar_cobro")</button>
         </Footer>
     </Modal>
 }
@@ -618,7 +659,29 @@ else
     private SaleTotals LocalTotals => SalesService.Totals(_cart.Where(l => l.Quantity > 0).Select(l => (l.Total, Math.Min(l.Discount, l.Quantity * l.UnitPrice), l.Item.TaxCode)),
         _regime, Currency);
     private VortexApi.Suite.Taxes.TaxRegime _regime = VortexApi.Suite.Taxes.TaxCatalog.For("PE");
-    private decimal Paid => _payments.Values.Sum();
+    private decimal Paid => _payments.Sum(p => Local(p.Key, p.Value));
+
+    /// <summary>Lo que hay que cobrar: el total y la propina (fase 5b).</summary>
+    private decimal Due => Totals.Total + _tip;
+
+    // Otra moneda y propinas (fase 5b). El monto de un pago en otra moneda va en esa moneda; aquí se muestra su equivalente
+    // con el tipo de cambio de compra del hub (Core vuelve a convertir al cobrar).
+    private IReadOnlyList<(string Currency, decimal Rate)> _currencies = [];
+    private readonly Dictionary<string, string?> _payCurrency = [];
+    private decimal _tip;
+    private string? _tipTo;
+
+    private decimal? Rate(string currency) => _currencies.FirstOrDefault(x => x.Currency == currency) is { Rate: > 0 } x ? x.Rate : null;
+
+    private decimal Local(string method, decimal amount) =>
+        _payCurrency.GetValueOrDefault(method) is { } cur && Rate(cur) is { } rate ? Math.Round(amount * rate, 2, MidpointRounding.AwayFromZero) : amount;
+
+    private void ChangeCurrency(string method, string? currency)
+    {
+        var due = Math.Max(0, Due - _payments.Where(p => p.Key != method).Sum(p => Local(p.Key, p.Value)));
+        _payCurrency[method] = string.IsNullOrEmpty(currency) ? null : currency;
+        _payments[method] = _payCurrency[method] is { } cur && Rate(cur) is { } rate ? Math.Ceiling(due / rate * 100) / 100 : due;
+    }
     private bool CanCharge => _cart.Any(l => l.Quantity > 0) && _cart.All(l => l.Quantity >= 0) && _quoteError is null;
 
     protected override async Task LoadAsync()
@@ -779,26 +842,39 @@ else
         _payments.Clear();
         _references.Clear();
         _payments[PaymentMethods.Cash] = Totals.Total;
+        _payCurrency.Clear();
+        (_tip, _tipTo) = (0, null);
         _paying = true;
+        _ = LoadCurrenciesAsync();
+    }
+
+    private async Task LoadCurrenciesAsync()
+    {
+        _currencies = await Pos.Master.GetForeignCurrenciesAsync(Currency);
+        await InvokeAsync(StateHasChanged);
     }
 
     private void ToggleMethod(string method)
     {
         if (!_payments.Remove(method))
-            _payments[method] = Math.Max(0, Totals.Total - Paid);
+            _payments[method] = Math.Max(0, Due - Paid);
         _references.TryAdd(method, null);
     }
 
     /// <summary>Monto exacto y los billetes de sol que alcanzan para pagar.</summary>
     private IEnumerable<decimal> QuickCash()
     {
-        var due = Totals.Total - _payments.Where(p => p.Key != PaymentMethods.Cash).Sum(p => p.Value);
+        var due = Due - _payments.Where(p => p.Key != PaymentMethods.Cash).Sum(p => Local(p.Key, p.Value));
+        if (_payCurrency.GetValueOrDefault(PaymentMethods.Cash) is { } cur && Rate(cur) is { } rate)
+            due = Math.Ceiling(due / rate * 100) / 100;
         return new[] { due }.Concat(new decimal[] { 10, 20, 50, 100, 200 }.Where(b => b > due)).Where(b => b > 0).Distinct().Take(5);
     }
 
     private async Task ChargeAsync()
     {
-        var draft = Draft(_payments.Where(p => p.Value > 0).Select(p => new PaymentDraft(p.Key, p.Value, _references.GetValueOrDefault(p.Key))).ToList());
+        var draft = Draft(_payments.Where(p => p.Value > 0)
+            .Select(p => new PaymentDraft(p.Key, p.Value, _references.GetValueOrDefault(p.Key), _payCurrency.GetValueOrDefault(p.Key))).ToList())
+            with { Tip = _tip, TipTo = string.IsNullOrWhiteSpace(_tipTo) ? null : _tipTo.Trim() };
         _busy = true;
         SaleReceipt? receipt = null;
         _error = await TryAsync(async () => receipt = await Pos.Sales.CheckoutAsync(draft));
