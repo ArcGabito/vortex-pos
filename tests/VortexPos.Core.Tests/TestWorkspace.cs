@@ -56,9 +56,9 @@ public sealed class TestWorkspace(string deviceTag = "TEST", string role = "admi
             new VortexSite(id, code, name, kind, null, new VortexAddress(null, null, "Lima", null, null, "PE"), true,
                 new VortexMasterMeta(1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null)));
 
-    public static VortexMasterChange<VortexParty> Party(Guid id, string name, string ruc) =>
+    public static VortexMasterChange<VortexParty> Party(Guid id, string name, string ruc, string documentType = "RUC") =>
         new(1, id, VortexChangeOperation.Created, 1, DateTimeOffset.UtcNow, "HUB",
-            new VortexParty(id, true, false, "Company", name, null, "RUC", ruc, null, null, null, null, true,
+            new VortexParty(id, true, false, documentType == "RUC" ? "Company" : "Person", name, null, documentType, ruc, null, null, null, null, true,
                 new VortexMasterMeta(1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null)));
 
     public static VortexEvent Event(string type, object data, string source = "POS", int schemaVersion = 1, Guid? id = null) =>
@@ -70,11 +70,12 @@ public sealed class TestWorkspace(string deviceTag = "TEST", string role = "admi
         new(entry.Id, 1, entry.EventType!, source, 1, entry.SubjectType, entry.SubjectId, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
             null, entry.Payload!.Value);
 
-    public static VortexMasterChange<VortexCompany> Company(string country, string currency, decimal? taxRate) =>
-        new(1, Guid.Empty, VortexChangeOperation.Created, 1, DateTimeOffset.UtcNow, "HUB",
-            new VortexCompany(Guid.NewGuid(), "Bodega Demo SAC", null, null, country, currency, "America/Lima",
+    public static VortexMasterChange<VortexCompany> Company(string country, string currency, decimal? taxRate, string? taxId = null,
+        int version = 1) =>
+        new(version, Guid.Empty, VortexChangeOperation.Updated, version, DateTimeOffset.UtcNow, "HUB",
+            new VortexCompany(Guid.NewGuid(), "Bodega Demo SAC", null, taxId, country, currency, "America/Lima",
                 taxRate ?? VortexApi.Suite.Taxes.TaxCatalog.For(country).StandardRate * 100, null, null, null,
-                new VortexMasterMeta(1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null)));
+                new VortexMasterMeta(version, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null)));
 
     /// <summary>Usuario de prueba; el rol se puede cambiar a mitad de una prueba.</summary>
     public sealed class TestContext(string deviceTag, Guid store, string role) : IPosContext
@@ -88,5 +89,6 @@ public sealed class TestWorkspace(string deviceTag = "TEST", string role = "admi
         public bool Can(string permission) => PosPermissions.Matrix.Can(Role, "User", permission);
         public bool IsOnline { get; set; } = true;
         public string? AuthorizedBy { get; set; }
+        public IReadOnlyList<string> Features { get; set; } = [];
     }
 }

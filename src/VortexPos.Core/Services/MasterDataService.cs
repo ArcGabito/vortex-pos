@@ -27,11 +27,11 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
         await using var tx = c.BeginTransaction();
         var applied = await c.ExecAsync("""
             INSERT INTO items (id, sku, name, kind, description, unit, barcode, category, price, currency_code, tax_code,
-                               track_inventory, is_active, version, is_deleted, pending, updated_at)
+                               track_inventory, is_active, version, is_deleted, pending, updated_at, unit_code)
             VALUES ($id, $sku, $name, $kind, $desc, $unit, $barcode, $category, $price, $currency, $tax, $track, $active,
-                    $version, $deleted, 0, $updated)
+                    $version, $deleted, 0, $updated, $unitCode)
             ON CONFLICT (id) DO UPDATE SET
-                sku = excluded.sku, name = excluded.name, kind = excluded.kind, description = excluded.description,
+                unit_code = excluded.unit_code, sku = excluded.sku, name = excluded.name, kind = excluded.kind, description = excluded.description,
                 unit = excluded.unit, barcode = excluded.barcode, category = excluded.category, price = excluded.price,
                 currency_code = excluded.currency_code, tax_code = excluded.tax_code,
                 track_inventory = excluded.track_inventory, is_active = excluded.is_active, version = excluded.version,
@@ -40,7 +40,8 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
             """, tx, ("$id", change.EntityId), ("$sku", d.Sku), ("$name", d.Name), ("$kind", d.Kind), ("$desc", d.Description),
             ("$unit", d.Unit), ("$barcode", d.Barcode), ("$category", d.Category), ("$price", d.Price),
             ("$currency", d.CurrencyCode), ("$tax", d.TaxCode), ("$track", d.TrackInventory), ("$active", d.IsActive),
-            ("$version", change.Version), ("$deleted", Deleted(change.Operation, d.Meta)), ("$updated", d.Meta.UpdatedAt));
+            ("$version", change.Version), ("$deleted", Deleted(change.Operation, d.Meta)), ("$updated", d.Meta.UpdatedAt),
+            ("$unitCode", d.UnitCode));
 
         // Las presentaciones son parte del artículo: si la versión se aplicó, quedan exactamente las que trae. La misma
         // versión también se aplica si no hay un cambio local sin enviar (son los mismos datos): así, al volver a bajar el catálogo tras la migración 4, los

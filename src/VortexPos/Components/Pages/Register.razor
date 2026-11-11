@@ -114,6 +114,21 @@ else
                     }
                 </div>
 
+                @if (_fiscal.Enabled)
+                {
+                    <div class="field">
+                        <label>@T("register.comprobante")</label>
+                        <div class="segmented" style="align-self:flex-start">
+                            <button class="@(_fiscalType == FiscalKinds.Receipt ? "on" : "")" @onclick="() => _fiscalType = FiscalKinds.Receipt">@T("register.boleta")</button>
+                            <button class="@(_fiscalType == FiscalKinds.Invoice ? "on" : "")" @onclick="() => _fiscalType = FiscalKinds.Invoice">@T("register.factura")</button>
+                        </div>
+                        @if (_fiscalType == FiscalKinds.Invoice)
+                        {
+                            <span class="hint">@T("register.factura_explica")</span>
+                        }
+                    </div>
+                }
+
                 <div class="field">
                     <label>@T("register.cupon")</label>
                     <div class="input-icon">
@@ -409,6 +424,10 @@ else
             <div class="receipt-done">
                 <div class="em-icon"><Icon Name="check" Size="28" Stroke="2.4" /></div>
                 <strong>@Fmt.Money(r.Total, Currency)</strong>
+                @if (r.FiscalNumber is { } comprobante)
+                {
+                    <span class="muted">@T("register.comprobante_emitido", comprobante)</span>
+                }
                 @if (r.Change > 0)
                 {
                     <span class="change">@T("register.vuelto_2") <b>@Fmt.Money(r.Change, Currency)</b></span>
@@ -525,7 +544,11 @@ else
             : null;
 
     private SaleDraft Draft(IReadOnlyList<PaymentDraft>? payments = null) =>
-        new(_cart.Where(l => l.Quantity > 0).Select(l => l.ToLine()).ToList(), payments ?? [], _customerId, null, _coupon, _ticketDiscount);
+        new(_cart.Where(l => l.Quantity > 0).Select(l => l.ToLine()).ToList(), payments ?? [], _customerId, null, _coupon, _ticketDiscount,
+            _fiscal.Enabled ? _fiscalType : null);
+
+    private FiscalSetup _fiscal = new(false, null, null);
+    private string _fiscalType = FiscalKinds.Receipt;
 
     /// <summary>Cuando cambia la venta, se vuelve a cotizar en Core.</summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -603,6 +626,7 @@ else
         _session = await Pos.Cash.GetOpenAsync();
         _regime = await Pos.Sales.GetTaxRegimeAsync();
         _held = await Pos.Sales.GetHeldAsync();
+        _fiscal = await Pos.Fiscal.GetSetupAsync();
         if (_session is null)
             return;
         _categories = await Pos.Master.GetCategoriesAsync();
@@ -863,6 +887,7 @@ else
     private async Task NewSale()
     {
         _receipt = null;
+        _fiscalType = FiscalKinds.Receipt;
         Clear();
         if (_picker is not null)
             await _picker.FocusAsync();

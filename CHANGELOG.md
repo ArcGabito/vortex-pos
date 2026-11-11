@@ -8,6 +8,10 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Comprobante electrónico en caja (fase 5a, Perú):** boleta o factura numerada en la caja con las series de cada caja,
+  ticket con QR y montos fiscales, envío al hub (que firma y envía a SUNAT) en cada sincronización y contingencia sin
+  red; nota de crédito al anular (motivo 01) o devolver (07); estado y reintento en Ventas; series en Configuración.
+  `sale.completed`, `sale.voided` y `sale.returned` llevan `fiscal`.
 - **Saldos (fase 4b):** puntos que se ganan y canjean en cualquier tienda, gift cards y vales con límite sin red, cuenta
   corriente con el límite de crédito del cliente, apartados con abonos y alta rápida de cliente en la caja. Pantalla
   Saldos.

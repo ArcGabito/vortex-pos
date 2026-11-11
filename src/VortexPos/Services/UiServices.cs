@@ -158,6 +158,14 @@ public static class Fmt
         _ => "clock",
     };
 
+    public static string FiscalKind(string kind) => kind switch
+    {
+        FiscalKinds.Invoice => T("fmt.factura"),
+        FiscalKinds.Receipt => T("fmt.boleta"),
+        FiscalKinds.CreditNote => T("fmt.nota_credito"),
+        _ => kind,
+    };
+
     public static string SaleStatus(string status) => status switch
     {
         SaleStatuses.Completed => T("fmt.pagada"),

@@ -69,7 +69,20 @@ del artículo con que se vendió; `quantity` sigue en la unidad del artículo: u
 precio de lista cuando la caja cobró otro con permiso). Ambos son opcionales y aditivos. Desde la 3b la venta trae `coupon` (el
 cupón usado) y cada línea `promotionId` (la promoción que le dio descuento; `discount` ya incluye promociones y
 descuentos manuales). Desde la 3c trae `priceListId` (la lista de precios que rigió, si hubo) y `listPrice` lleva el
-precio de esa lista cuando difiere del precio del artículo.
+precio de esa lista cuando difiere del precio del artículo. Desde la 5a, `sale.completed` trae `fiscal` (`{ type, series,
+number }`: la boleta o factura electrónica que emitió la caja) y `sale.voided` y `sale.returned` la nota de crédito que
+emitieron; el ERP la registra y no vuelve a facturar la venta.
+
+### Comprobante electrónico (fase 5a)
+
+Con el módulo `facturacion_electronica` en el acceso al POS, una empresa de Perú con RUC válido y las series de la caja
+(Configuración → Comprobante electrónico; viajan como `pos.record.upserted` de tipo `fiscal_series` para que dos cajas
+no usen la misma), cada venta sale con su boleta (o factura, con cliente con RUC). El número se asigna en la caja dentro
+de la transacción de la venta (el mayor conocido de la serie más uno: una caja reinstalada sigue desde donde iba) y el
+ticket lleva el QR sin esperar al hub. Tras cada sincronización la caja pide al hub los comprobantes pendientes
+(`POST /api/fiscal/documents`, con el total cobrado por línea); sin red quedan en contingencia. Anular una venta emite su
+nota de crédito con motivo 01 y devolver, con motivo 07. La respuesta de SUNAT llega a todas las cajas como
+`hub.fiscal.accepted` o `hub.fiscal.rejected`; en Ventas se ve el estado y se reintenta lo que falló.
 
 ### Qué consume el POS
 
@@ -78,6 +91,7 @@ precio de esa lista cuando difiere del precio del artículo.
 | `stock.adjusted` (WMS) | Guarda el saldo absoluto (`quantityOnHand`) por tienda y artículo; se muestra al vender y en el catálogo |
 | `invoice.issued` (ERP) | Si trae `saleId`, anota el número de comprobante en la venta |
 | `invoice.voided` (ERP) | Si trae `saleId`, quita ese número de la venta: queda sin comprobante y el ERP puede emitirle otro |
+| `hub.fiscal.accepted`, `hub.fiscal.rejected` (hub) | Estado del comprobante electrónico de una caja (`sourceId` = venta, devolución o anulación) |
 | `sale.completed`, `sale.voided`, `sale.returned` (otra caja POS) | Ver abajo |
 | `pos.record.upserted` (otra caja POS) | Guarda la configuración de la tienda si es más reciente que la que tiene (`updatedAt`; a igual hora, desempata `updatedBy`) |
 

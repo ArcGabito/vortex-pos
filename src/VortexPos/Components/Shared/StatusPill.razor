@@ -12,6 +12,16 @@
         : sale.Returned > 0 ? (T("statuspill.devolucion_parcial"), "warn")
         : (T("statuspill.pagada"), "good");
 
+    /// <summary>Estado del comprobante electrónico ante SUNAT.</summary>
+    public static (string Text, string Tone) ForFiscal(string? status) => status switch
+    {
+        FiscalStatuses.Accepted => (T("statuspill.fiscal_aceptado"), "good"),
+        FiscalStatuses.Observed => (T("statuspill.fiscal_observado"), "warn"),
+        FiscalStatuses.Rejected => (T("statuspill.fiscal_rechazado"), "bad"),
+        FiscalStatuses.Failed or FiscalStatuses.Error => (T("statuspill.fiscal_error"), "bad"),
+        _ => (T("statuspill.fiscal_pendiente"), "neutral"),
+    };
+
     public static (string Text, string Tone) ForStock(decimal? onHand) => onHand switch
     {
         null => (T("statuspill.sin_dato"), "neutral"),
