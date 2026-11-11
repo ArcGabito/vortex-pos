@@ -94,6 +94,12 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
     public bool IsOnline => Connection == ConnectionState.Online;
     public string DeviceTag => DeviceIdentity.Tag(_deviceId);
 
+    /// <summary>Módulos del acceso al POS en el hub (p. ej. <c>facturacion_electronica</c>).</summary>
+    public IReadOnlyList<string> Features => Session?.Access.Features ?? [];
+
+    /// <summary>Envía los comprobantes electrónicos al hub con el token de la sesión.</summary>
+    public IFiscalGateway FiscalGateway => new HubFiscalGateway(this);
+
     /// <summary>Tiendas asignadas en el hub (<c>Access.SiteIds</c>). Los administradores de la organización ven todas.</summary>
     public IReadOnlyList<Guid> SiteIds =>
         Session is { } s && s.User.Role is not ("OrgAdmin" or "PlatformAdmin") ? s.Access.SiteIds ?? [] : [];
@@ -168,6 +174,12 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
     }
 
     /// <summary>Fija (o quita, con null) el PIN del usuario de la sesión en el hub. Necesita conexión.</summary>
+    /// <summary>Llama al hub con el token vigente (lo renueva si hace falta). Sin sesión, falla como sin conexión.</summary>
+    internal Task<T> WithHubAsync<T>(Func<VortexApiClient, string, Task<T>> call) =>
+        _sessions is { } sessions && _client is { } client
+            ? sessions.WithAccessTokenAsync(token => call(client, token))
+            : throw new HttpRequestException("Sin sesión con el hub.");
+
     public async Task<string?> SetMyPinAsync(string currentPassword, string? pin)
     {
         if (_sessions is not { } sessions || _client is not { } client)
@@ -467,12 +479,15 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
                 _lastSyncAt = DateTimeOffset.Now;
                 _lastError = null;
                 SetConnection(ConnectionState.Online);
+                // Comprobantes emitidos en la caja (también los de contingencia) que el hub aún no recibió.
+                if (await Workspace!.Fiscal.SendPendingAsync(FiscalGateway, ct) > 0)
+                    hadData = true;
             }
             else
             {
                 await GoOfflineAsync(ct);
             }
-            hadData = result.PulledChanges + result.PulledEvents + result.Failed > 0;
+            hadData |= result.PulledChanges + result.PulledEvents + result.Failed > 0;
         }
         catch (VortexSyncException ex)
         {
@@ -605,4 +620,14 @@ public sealed class AppSession(HubSettings settings, ISessionStore sessionStore,
     }
 
     public async ValueTask DisposeAsync() => await StopAsync();
+}
+
+/// <summary>Comprobantes electrónicos por el hub (<c>api/fiscal/documents</c>) con el token de la sesión.</summary>
+internal sealed class HubFiscalGateway(AppSession session) : IFiscalGateway
+{
+    public Task<VortexFiscalDocument> IssueAsync(VortexFiscalRequest request, CancellationToken ct = default) =>
+        session.WithHubAsync((client, token) => client.IssueFiscalDocumentAsync(token, request, ct));
+
+    public Task<VortexFiscalDocument> RetryAsync(Guid hubId, CancellationToken ct = default) =>
+        session.WithHubAsync((client, token) => client.RetryFiscalDocumentAsync(token, hubId, ct));
 }

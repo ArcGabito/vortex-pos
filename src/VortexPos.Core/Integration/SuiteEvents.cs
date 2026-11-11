@@ -27,6 +27,10 @@ public static class SuiteEvents
     public const string StockAdjusted = "stock.adjusted";
     public const string InvoiceIssued = "invoice.issued";
     public const string InvoiceVoided = "invoice.voided";
+
+    // Del hub: respuesta de la autoridad tributaria a un comprobante (fase 5a)
+    public const string FiscalAccepted = VortexApi.Client.VortexHubEvents.FiscalAccepted;
+    public const string FiscalRejected = VortexApi.Client.VortexHubEvents.FiscalRejected;
 }
 
 /// <summary>
@@ -37,7 +41,13 @@ public static class SuiteEvents
 public sealed record SaleCompleted(
     Guid SaleId, string Number, Guid SiteId, Guid? CustomerId, string CurrencyCode, decimal Subtotal, decimal Tax,
     decimal Total, IReadOnlyList<SaleLine> Lines, IReadOnlyList<SalePayment> Payments, decimal Discount = 0,
-    string? CreatedBy = null, string? Coupon = null, Guid? PriceListId = null);
+    string? CreatedBy = null, string? Coupon = null, Guid? PriceListId = null, SaleFiscal? Fiscal = null);
+
+/// <summary>
+/// Comprobante electrónico que emitió la caja (fase 5a): tipo (<c>receipt</c>, <c>invoice</c>, <c>credit_note</c>), serie y
+/// número. Lo firma y lo envía el hub; las otras cajas y el ERP lo muestran (el ERP no vuelve a facturar la venta).
+/// </summary>
+public sealed record SaleFiscal(string Type, string Series, long Number);
 
 public sealed record SaleLine(
     Guid ItemId, string? Sku, decimal Quantity, decimal UnitPrice, decimal Discount, decimal Total, string? Name = null,
@@ -46,7 +56,8 @@ public sealed record SaleLine(
 
 public sealed record SalePayment(string Method, decimal Amount);
 
-public sealed record SaleVoided(Guid SaleId, string? Number, string? Reason);
+/// <param name="Fiscal">Nota de crédito (motivo 01, anulación) si la venta tenía comprobante electrónico.</param>
+public sealed record SaleVoided(Guid SaleId, string? Number, string? Reason, SaleFiscal? Fiscal = null);
 
 /// <summary><c>sale.returned</c>. Extiende v1 con <c>number</c> y <c>reason</c>.</summary>
 /// <param name="SaleId">La venta devuelta; <see cref="Guid.Empty"/> en una devolución sin ticket.</param>
@@ -54,7 +65,7 @@ public sealed record SaleVoided(Guid SaleId, string? Number, string? Reason);
 /// <param name="ExchangeSaleId">En un cambio, la venta de lo que se llevó.</param>
 public sealed record SaleReturned(
     Guid SaleId, Guid ReturnId, Guid SiteId, IReadOnlyList<SaleReturnLine> Lines, decimal Total, string? Number = null,
-    string? Reason = null, string? RefundMethod = null, Guid? ExchangeSaleId = null);
+    string? Reason = null, string? RefundMethod = null, Guid? ExchangeSaleId = null, SaleFiscal? Fiscal = null);
 
 /// <summary><c>cash.deposited</c>: efectivo que sale de la caja para el banco.</summary>
 public sealed record CashDeposited(Guid DepositId, Guid SiteId, decimal Amount, string CurrencyCode, string? Reference, string? Bank,
@@ -88,6 +99,9 @@ public static class PosRecordKinds
 
     /// <summary>Apartado con sus abonos. Id: el del apartado.</summary>
     public const string Layaway = "layaway";
+
+    /// <summary>Series de comprobantes de una caja (<see cref="Domain.FiscalSeries"/>). Id: la etiqueta del equipo.</summary>
+    public const string FiscalSeries = "fiscal_series";
 }
 
 /// <summary><c>balance.moved</c>: un movimiento del libro de saldos (puntos o gift card). El saldo es la suma de los movimientos.</summary>

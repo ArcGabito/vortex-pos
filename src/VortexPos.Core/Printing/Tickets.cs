@@ -14,16 +14,25 @@ public enum TicketAlign { Left, Center, Right }
 public sealed record TicketLine(string Text, TicketAlign Align = TicketAlign.Left, bool Bold = false, bool Large = false);
 
 /// <summary>Ticket listo para imprimir: líneas ya cortadas al ancho del papel, más si se corta el papel y se abre el cajón.</summary>
-public sealed record TicketDocument(IReadOnlyList<TicketLine> Lines, int Columns, bool OpenDrawer = false, bool Cut = true)
+/// <param name="Qr">Texto del código QR que va al final (representación impresa del comprobante electrónico).</param>
+/// <param name="AfterQr">Líneas que van debajo del QR.</param>
+public sealed record TicketDocument(IReadOnlyList<TicketLine> Lines, int Columns, bool OpenDrawer = false, bool Cut = true, string? Qr = null,
+    IReadOnlyList<TicketLine>? AfterQr = null)
 {
     /// <summary>El ticket como texto plano (vista previa y pruebas).</summary>
-    public string ToText() => string.Join('\n', Lines.Select(l => l.Text));
+    public string ToText() => string.Join('\n', Lines.Select(l => l.Text)
+        .Concat(Qr is null ? [] : [$"[QR] {Qr}"]).Concat((AfterQr ?? []).Select(l => l.Text)));
 }
+
+/// <summary>Comprobante electrónico de la venta para el ticket.</summary>
+/// <param name="CreditNotes">Notas de crédito emitidas sobre el comprobante (anulación, devoluciones).</param>
+public sealed record FiscalTicket(string Kind, string Number, string Status, string CustomerDocType, string? CustomerDocNumber, FiscalTotals Totals,
+    string Qr, string? Hash, IReadOnlyList<string> CreditNotes);
 
 /// <summary>Lo que lleva el ticket de una venta.</summary>
 public sealed record SaleTicketData(
     SaleRow Sale, IReadOnlyList<SaleLineRow> Lines, IReadOnlyList<PaymentRow> Payments, CompanyInfo? Company, string? SiteName,
-    string? SiteAddress, string TaxName);
+    string? SiteAddress, string TaxName, FiscalTicket? Fiscal = null);
 
 /// <summary>
 /// Arma los tickets (venta y reporte X/Z) como líneas de texto al ancho del papel. No depende de la impresora: el mismo
@@ -41,6 +50,13 @@ public static class TicketBuilder
         b.Header(data.Company, data.SiteName, data.SiteAddress, settings.TicketHeader);
         if (reprint)
             b.Center(T("ticket.reimpresion"), bold: true);
+        var fiscal = data.Fiscal;
+        if (fiscal is not null)
+        {
+            b.Separator();
+            b.Center(T(fiscal.Kind == FiscalKinds.Invoice ? "ticket.factura_electronica" : "ticket.boleta_electronica"), bold: true);
+            b.Center(fiscal.Number, bold: true, large: true);
+        }
         b.Separator();
         b.Pair(T("ticket.venta"), sale.Number);
         b.Pair(T("ticket.fecha"), Local(sale.CreatedAt, data.Company).ToString("g", culture));
@@ -48,6 +64,8 @@ public static class TicketBuilder
             b.Pair(T("ticket.cajero"), cashier);
         if (sale.CustomerName is { Length: > 0 } customer)
             b.Wrap($"{T("ticket.cliente")}: {customer}");
+        if (fiscal?.CustomerDocNumber is { } doc)
+            b.Pair(T(fiscal.CustomerDocType == "6" ? "ticket.ruc" : "ticket.documento"), doc);
         b.Separator();
 
         foreach (var line in data.Lines)
@@ -59,10 +77,24 @@ public static class TicketBuilder
         }
         b.Separator();
 
-        b.Pair(T("ticket.subtotal"), Money(sale.Subtotal));
-        b.Pair(data.TaxName, Money(sale.Tax));
         if (sale.Discount > 0)
             b.Pair(T("ticket.descuentos"), "-" + Money(sale.Discount));
+        if (fiscal is not null)
+        {
+            // Los montos del comprobante (calculados por línea como en el XML): el total es lo cobrado.
+            if (fiscal.Totals.Taxed > 0)
+                b.Pair(T("ticket.op_gravada"), Money(fiscal.Totals.Taxed));
+            if (fiscal.Totals.Exempt > 0)
+                b.Pair(T("ticket.op_exonerada"), Money(fiscal.Totals.Exempt));
+            if (fiscal.Totals.Unaffected > 0)
+                b.Pair(T("ticket.op_inafecta"), Money(fiscal.Totals.Unaffected));
+            b.Pair(data.TaxName, Money(fiscal.Totals.Tax));
+        }
+        else
+        {
+            b.Pair(T("ticket.subtotal"), Money(sale.Subtotal));
+            b.Pair(data.TaxName, Money(sale.Tax));
+        }
         b.Pair(T("ticket.total"), Money(sale.Total), bold: true, large: true);
         b.Blank();
         foreach (var payment in data.Payments)
@@ -83,9 +115,22 @@ public static class TicketBuilder
             b.Pair(T("ticket.comprobante"), invoice);
         }
 
+        foreach (var note in fiscal?.CreditNotes ?? [])
+            b.Pair(T("ticket.nota_credito"), note);
+
         b.Footer(settings.TicketFooter);
         var paidCash = data.Payments.Any(p => p.Method == PaymentMethods.Cash);
-        return b.Build(openDrawer: !reprint && paidCash && settings.OpenDrawerOnCash);
+        if (fiscal is null)
+            return b.Build(openDrawer: !reprint && paidCash && settings.OpenDrawerOnCash);
+
+        // Representación impresa: leyenda, QR y, si el hub ya firmó, el resumen de la firma.
+        var after = new Builder(settings.PaperColumns);
+        after.Center(T(fiscal.Kind == FiscalKinds.Invoice ? "ticket.representacion_factura" : "ticket.representacion_boleta"));
+        if (fiscal.Hash is { Length: > 0 } hash)
+            after.Center($"{T("ticket.resumen")}: {hash}");
+        if (fiscal.Status == FiscalStatuses.Pending)
+            after.Center(T("ticket.contingencia"));
+        return b.Build(openDrawer: !reprint && paidCash && settings.OpenDrawerOnCash, qr: fiscal.Qr, afterQr: after.Lines);
     }
 
     /// <summary>Reporte X (caja abierta) o Z (caja cerrada) del turno.</summary>
@@ -263,7 +308,10 @@ public static class TicketBuilder
             _lines.Add(new TicketLine(left + right.PadLeft(width - left.Length), Bold: bold, Large: large));
         }
 
-        public TicketDocument Build(bool openDrawer) => new(_lines, columns, openDrawer);
+        public IReadOnlyList<TicketLine> Lines => _lines;
+
+        public TicketDocument Build(bool openDrawer, string? qr = null, IReadOnlyList<TicketLine>? afterQr = null) =>
+            new(_lines, columns, openDrawer, Qr: qr, AfterQr: afterQr);
 
         private static IEnumerable<string> Split(string? text) =>
             (text ?? "").Replace("\r", "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0);
@@ -325,6 +373,18 @@ public static class EscPos
             Write(Text.GetBytes(line.Text));
             Write(0x0A);
         }
+        if (doc.Qr is { Length: > 0 } qr)
+        {
+            Write(0x1B, 0x45, 0, 0x1D, 0x21, 0, 0x1B, 0x61, 1, 0x0A);
+            Write(QrCode(qr));
+            Write(0x0A);
+            foreach (var line in doc.AfterQr ?? [])
+            {
+                Write(0x1B, 0x61, line.Align switch { TicketAlign.Center => (byte)1, TicketAlign.Right => (byte)2, _ => (byte)0 });
+                Write(Text.GetBytes(line.Text));
+                Write(0x0A);
+            }
+        }
         Write(0x1B, 0x45, 0, 0x1D, 0x21, 0, 0x1B, 0x61, 0);
         Write(0x1B, 0x64, 4);          // ESC d 4: avanza el papel para que el corte no se coma el final
         if (doc.Cut)
@@ -332,6 +392,25 @@ public static class EscPos
         if (doc.OpenDrawer)
             Write(DrawerPulse);
         return buffer.ToArray();
+    }
+
+    /// <summary>
+    /// Código QR modelo 2 con los comandos <c>GS ( k</c>: modelo, tamaño del módulo (6 puntos), corrección M, guardar los
+    /// datos e imprimir.
+    /// </summary>
+    public static byte[] QrCode(string data)
+    {
+        var bytes = Encoding.ASCII.GetBytes(data);
+        var length = bytes.Length + 3;
+        byte pL = (byte)(length % 256), pH = (byte)(length / 256);
+        return
+        [
+            0x1D, 0x28, 0x6B, 4, 0, 0x31, 0x41, 0x32, 0x00,   // modelo 2
+            0x1D, 0x28, 0x6B, 3, 0, 0x31, 0x43, 0x06,         // módulo de 6 puntos
+            0x1D, 0x28, 0x6B, 3, 0, 0x31, 0x45, 0x31,         // corrección de errores M
+            0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30, .. bytes,
+            0x1D, 0x28, 0x6B, 3, 0, 0x31, 0x51, 0x30,         // imprimir
+        ];
     }
 
     /// <summary>ESC p 0 25 250: pulso al pin 2 del conector del cajón.</summary>

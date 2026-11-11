@@ -21,6 +21,7 @@ public sealed class PosWorkspace
         Stores = new StoreSettingsService(db, context, clock);
         Promotions = new PromotionService(db, context, clock);
         Balances = new BalanceService(db, context, clock);
+        Fiscal = new FiscalService(db, context, clock);
         SyncStore = new SqliteSyncStore(db);
         SyncHandlers = new PosSyncHandlers(db, Master, clock);
     }
@@ -33,6 +34,7 @@ public sealed class PosWorkspace
     public StoreSettingsService Stores { get; }
     public PromotionService Promotions { get; }
     public BalanceService Balances { get; }
+    public FiscalService Fiscal { get; }
     public SqliteSyncStore SyncStore { get; }
     public PosSyncHandlers SyncHandlers { get; }
 

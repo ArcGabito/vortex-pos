@@ -26,6 +26,9 @@ public interface IPosContext
 
     /// <summary>Si la caja está sincronizando con el hub (sin red, la gift card solo se gasta hasta el límite sin conexión).</summary>
     bool IsOnline => true;
+
+    /// <summary>Módulos del acceso de la organización al POS en el hub (p. ej. <c>facturacion_electronica</c>).</summary>
+    IReadOnlyList<string> Features => [];
 }
 
 /// <summary>Dato inválido o regla de negocio incumplida: se muestra tal cual al usuario.</summary>
@@ -133,8 +136,9 @@ public sealed record PaymentDraft(string Method, decimal Amount, string? Referen
 /// <summary>Lo que se cobra en caja. En efectivo, <c>Amount</c> es lo que entrega el cliente (puede haber vuelto).</summary>
 /// <param name="Coupon">Cupón ingresado (activa las promociones de ese cupón).</param>
 /// <param name="TicketDiscount">Descuento manual a todo el ticket (se reparte entre las líneas); más del 10 % necesita permiso.</param>
+/// <param name="FiscalType">Comprobante electrónico: <c>receipt</c> (boleta, por defecto) o <c>invoice</c> (factura, cliente con RUC).</param>
 public sealed record SaleDraft(IReadOnlyList<CartLine> Lines, IReadOnlyList<PaymentDraft> Payments, Guid? CustomerId = null, Guid? SiteId = null,
-    string? Coupon = null, decimal TicketDiscount = 0);
+    string? Coupon = null, decimal TicketDiscount = 0, string? FiscalType = null);
 
 /// <summary>Cómo queda una línea agrupada (artículo, presentación y precio) con sus descuentos.</summary>
 /// <param name="RequestedPrice">El precio que mandó la caja (null: el de la lista o del artículo).</param>
@@ -157,13 +161,14 @@ public sealed record SaleTotals(decimal Subtotal, decimal Tax, decimal Discount,
 public sealed record AuditRow(
     Guid Id, DateTimeOffset At, string? UserName, string? Device, string Action, string Entity, string? Reference, string? Detail);
 
-public sealed record SaleReceipt(Guid SaleId, string Number, decimal Total, decimal Change);
+/// <param name="FiscalNumber">Serie y número del comprobante electrónico (null si la caja no emite).</param>
+public sealed record SaleReceipt(Guid SaleId, string Number, decimal Total, decimal Change, string? FiscalNumber = null);
 
 public sealed record SaleRow(
     Guid Id, string Number, string Origin, Guid SiteId, string? SiteName, Guid? CustomerId, string? CustomerName, string Status,
     string CurrencyCode, decimal Subtotal, decimal Tax, decimal Discount, decimal Total, decimal? CashReceived,
     decimal? ChangeGiven, DateTimeOffset CreatedAt, string? UserName, DateTimeOffset? VoidedAt, string? VoidReason,
-    string? InvoiceNumber, decimal Returned, int Items)
+    string? InvoiceNumber, decimal Returned, int Items, string? FiscalKind = null, string? FiscalNumber = null, string? FiscalStatus = null)
 {
     public bool CanVoid => Status == SaleStatuses.Completed && Returned == 0;
     public bool CanReturn => Status == SaleStatuses.Completed && Returned < Total;

@@ -123,6 +123,10 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
                     payments.Where(p => p.Method is not (PaymentMethods.Points or PaymentMethods.GiftCard or PaymentMethods.Exchange)).Sum(p => p.Amount),
                     saleId, siteId);
 
+            // Comprobante electrónico (fase 5a): numerado aquí, lo firma y lo envía el hub; sin red sale en contingencia.
+            var fiscal = await new FiscalService(Db, Context, Clock).IssueForSaleAsync(c, tx, now, completed, draft.FiscalType);
+            completed = completed with { Fiscal = fiscal };
+
             await InsertSaleAsync(c, tx, completed, "local", session.Id, now, cashReceived, change, payments);
             await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleCompleted, completed, subjectType: "sale", subjectId: number, id: saleId);
             if (totals.Discount > 0)
@@ -132,7 +136,7 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             if (applied.Count > 0)
                 await AuditAsync(c, tx, now, "promotion.applied", "sale", saleId, number,
                     string.Join("; ", applied.Select(a => $"{a.Name} −{a.Amount:0.00}")) + (completed.Coupon is { } cup ? $" · cupón {cup}" : ""));
-            return new SaleReceipt(saleId, number, totals.Total, change);
+            return new SaleReceipt(saleId, number, totals.Total, change, fiscal is null ? null : $"{fiscal.Series}-{fiscal.Number}");
         }
     }
 
@@ -374,7 +378,11 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             await MarkVoidedAsync(c, tx, saleId, now, reason.Trim());
             await new BalanceService(Db, Context, Clock).ReverseSaleAsync(c, tx, now, saleId);
             await AuditAsync(c, tx, now, AuditActions.Voided, "sale", saleId, sale.Number, reason.Trim());
-            await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleVoided, new SaleVoided(saleId, sale.Number, reason.Trim()),
+            // Con comprobante electrónico, la anulación es su nota de crédito (motivo 01) por toda la venta.
+            var lines = (await LinesAsync(c, tx, saleId)).Select(l => (l.ItemId, l.Quantity, l.Total)).ToList();
+            var note = await new FiscalService(Db, Context, Clock).IssueCreditNoteAsync(c, tx, now, VoidNoteId(saleId), saleId, null, lines,
+                FiscalService.VoidReason, reason.Trim());
+            await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleVoided, new SaleVoided(saleId, sale.Number, reason.Trim(), note),
                 subjectType: "sale", subjectId: sale.Number, id: DeterministicId.From("sale_void", saleId));
             return 0;
         }, ct);
@@ -504,6 +512,13 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         var number = await DocumentNumbers.NextAsync(c, tx, DocumentNumbers.Return, Context.DeviceTag);
         var e = new SaleReturned(saleId, returnId, siteId, returned.Select(r => new SaleReturnLine(r.ItemId, r.Quantity, r.Total)).ToList(), total,
             number, Clean(reason), refundMethod, exchangeSaleId);
+        // Devolución de una venta con comprobante: nota de crédito (motivo 07) por lo devuelto.
+        if (saleId != Guid.Empty)
+            e = e with
+            {
+                Fiscal = await new FiscalService(Db, Context, Clock).IssueCreditNoteAsync(c, tx, now, returnId, saleId, returnId,
+                    returned.Select(r => (r.ItemId, r.Quantity, r.Total)).ToList(), FiscalService.ReturnReason, Clean(reason) ?? T("fiscal.devolucion")),
+            };
         await InsertReturnAsync(c, tx, e, session.Id, now, Context.UserName,
             returned.Where(r => r.LineNo is not null).Select(r => (r.LineNo!.Value, r.Quantity)).ToList(), cashRefund);
         await Outbox.EnqueueEventAsync(c, tx, now, SuiteEvents.SaleReturned, e, subjectType: "sale", subjectId: saleNumber ?? number, id: returnId);
@@ -548,7 +563,8 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
               AND ($site IS NULL OR s.site_id = $site)
               AND ($from IS NULL OR s.created_at >= $from) AND ($to IS NULL OR s.created_at < $to)
               AND ($search IS NULL OR s.number LIKE $like OR p.name LIKE $like OR p.document_number LIKE $like
-                   OR s.invoice_number LIKE $like)
+                   OR s.invoice_number LIKE $like
+                   OR EXISTS (SELECT 1 FROM fiscal_documents f WHERE f.sale_id = s.id AND f.series || '-' || f.number LIKE $like))
             """;
         var args = new (string, object?)[]
         {
@@ -594,7 +610,31 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
             r => string.Join(", ", new[] { r.StrOrNull("address_line"), r.StrOrNull("city") }.Where(x => !string.IsNullOrWhiteSpace(x))),
             null, ("$id", sale.SiteId));
         var regime = await TaxRegimeAsync(c, null);
-        return new Printing.SaleTicketData(sale, await LinesAsync(c, null, saleId), payments, company, sale.SiteName, address, regime.TaxName);
+        var lines = await LinesAsync(c, null, saleId);
+        return new Printing.SaleTicketData(sale, lines, payments, company, sale.SiteName, address, regime.TaxName,
+            await FiscalTicketAsync(c, sale, company, regime));
+    }
+
+    /// <summary>Lo que el ticket necesita del comprobante electrónico: tipo, número, cliente, montos y el texto del QR.</summary>
+    private static async Task<Printing.FiscalTicket?> FiscalTicketAsync(SqliteConnection c, SaleRow sale, CompanyInfo? company, TaxRegime regime)
+    {
+        var documents = await FiscalService.ForSaleAsync(c, null, sale.Id);
+        if (documents.FirstOrDefault(d => d.Kind is FiscalKinds.Receipt or FiscalKinds.Invoice) is not { } doc)
+            return null;
+        var party = sale.CustomerId is { } id
+            ? await c.FirstOrDefaultAsync("SELECT document_type, document_number FROM parties WHERE id = $id",
+                r => new[] { r.StrOrNull("document_type"), r.StrOrNull("document_number") }, null, ("$id", id))
+            : null;
+        var customer = (Type: party?[0], Number: party?[1]);
+        var taxLines = await c.QueryAsync("SELECT total, tax_code FROM sale_lines WHERE sale_id = $id",
+            r => (r.Dec("total"), r.StrOrNull("tax_code")), null, ("$id", sale.Id));
+        var totals = FiscalService.Totals(taxLines, regime);
+        var docType = FiscalService.CustomerDocType(customer.Type, customer.Number);
+        var issued = DateOnly.FromDateTime(sale.CreatedAt.ToOffset(PosClock.Offset).DateTime);
+        var qr = FiscalService.QrText(company?.TaxId ?? "", doc.Kind, doc.Series, doc.Number, totals.Tax, totals.Total, issued, docType,
+            customer.Number, doc.Hash);
+        var notes = documents.Where(d => d.Kind == FiscalKinds.CreditNote).Select(d => d.FullNumber).ToList();
+        return new Printing.FiscalTicket(doc.Kind, doc.FullNumber, doc.Status, docType, customer.Number, totals, qr, doc.Hash, notes);
     }
 
     public async Task<DashboardSummary> GetDashboardAsync(CancellationToken ct = default)
@@ -645,17 +685,28 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     /// <summary>Venta de otra caja de la organización. Idempotente por <c>saleId</c> (las propias ya existen).</summary>
     internal static async Task ApplyRemoteSaleAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset occurredAt, SaleCompleted e)
     {
+        if (e.Fiscal is { } fiscal)
+            await FiscalService.ApplyRemoteAsync(c, tx, occurredAt, e.SaleId, fiscal, e.SaleId, null);
         if (await c.ScalarAsync<long>("SELECT COUNT(*) FROM sales WHERE id = $id", tx, ("$id", e.SaleId)) > 0)
             return;
         await InsertSaleAsync(c, tx, e, "remote", null, occurredAt, null, null,
             (e.Payments ?? []).Select(p => new PaymentDraft(p.Method, p.Amount)).ToList());
     }
 
-    internal static async Task ApplyRemoteVoidAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset occurredAt, SaleVoided e) =>
+    internal static async Task ApplyRemoteVoidAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset occurredAt, SaleVoided e)
+    {
         await MarkVoidedAsync(c, tx, e.SaleId, occurredAt, e.Reason);
+        if (e.Fiscal is { } fiscal)
+            await FiscalService.ApplyRemoteAsync(c, tx, occurredAt, VoidNoteId(e.SaleId), fiscal, e.SaleId, null);
+    }
+
+    /// <summary>Id de la nota de crédito de una anulación (el mismo en todas las cajas).</summary>
+    internal static Guid VoidNoteId(Guid saleId) => DeterministicId.From("sale_void_note", saleId);
 
     internal static async Task ApplyRemoteReturnAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset occurredAt, SaleReturned e)
     {
+        if (e.Fiscal is { } fiscal && e.SaleId != Guid.Empty)
+            await FiscalService.ApplyRemoteAsync(c, tx, occurredAt, e.ReturnId, fiscal, e.SaleId, e.ReturnId);
         if (await c.ScalarAsync<long>("SELECT COUNT(*) FROM sale_returns WHERE id = $id", tx, ("$id", e.ReturnId)) > 0)
             return;
         var saleLines = await LinesAsync(c, tx, e.SaleId);
@@ -692,8 +743,10 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
     private const string SelectSales = """
         SELECT s.*, t.name AS site_name, p.name AS customer_name,
                (SELECT COALESCE(SUM(total), 0) FROM sale_returns r WHERE r.sale_id = s.id) AS returned,
-               (SELECT COALESCE(SUM(quantity), 0) FROM sale_lines l WHERE l.sale_id = s.id) AS items
+               (SELECT COALESCE(SUM(quantity), 0) FROM sale_lines l WHERE l.sale_id = s.id) AS items,
+               f.kind AS fiscal_kind, f.series || '-' || f.number AS fiscal_number, f.status AS fiscal_status
         FROM sales s LEFT JOIN sites t ON t.id = s.site_id LEFT JOIN parties p ON p.id = s.customer_id
+             LEFT JOIN fiscal_documents f ON f.sale_id = s.id AND f.kind IN ('receipt', 'invoice')
         """;
 
     private static Task<SaleRow?> GetSaleAsync(SqliteConnection c, SqliteTransaction? tx, Guid id) =>
@@ -703,7 +756,8 @@ public sealed class SalesService(PosDatabase db, IPosContext context, TimeProvid
         r.Guid("id"), r.Str("number"), r.Str("origin"), r.Guid("site_id"), r.StrOrNull("site_name"), r.GuidOrNull("customer_id"),
         r.StrOrNull("customer_name"), r.Str("status"), r.Str("currency_code"), r.Dec("subtotal"), r.Dec("tax"), r.Dec("discount"),
         r.Dec("total"), r.DecOrNull("cash_received"), r.DecOrNull("change_given"), r.Time("created_at"), r.StrOrNull("user_name"),
-        r.TimeOrNull("voided_at"), r.StrOrNull("void_reason"), r.StrOrNull("invoice_number"), r.Dec("returned"), (int)r.Dec("items"));
+        r.TimeOrNull("voided_at"), r.StrOrNull("void_reason"), r.StrOrNull("invoice_number"), r.Dec("returned"), (int)r.Dec("items"),
+        r.StrOrNull("fiscal_kind"), r.StrOrNull("fiscal_number"), r.StrOrNull("fiscal_status"));
 
     private static async Task<List<SaleLineRow>> LinesAsync(SqliteConnection c, SqliteTransaction? tx, Guid saleId) =>
         await c.QueryAsync("SELECT * FROM sale_lines WHERE sale_id = $id ORDER BY line_no", r => new SaleLineRow(

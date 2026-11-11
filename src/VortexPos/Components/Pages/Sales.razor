@@ -87,7 +87,7 @@
                                 <td>
                                     <div class="two-line">
                                         <span class="t1" style="font-weight:600">@(s.CustomerName ?? T("sales.clientes_varios"))</span>
-                                        <span class="t2">@(s.InvoiceNumber is { } inv ? T("sales.comprobante_n", inv) : T("sales.n_articulos", Fmt.Qty(s.Items)))</span>
+                                        <span class="t2">@(s.FiscalNumber is { } fe ? T("sales.comprobante_n", fe) : s.InvoiceNumber is { } inv ? T("sales.comprobante_n", inv) : T("sales.n_articulos", Fmt.Qty(s.Items)))</span>
                                     </div>
                                 </td>
                                 <td><span class="muted">@s.SiteName</span></td>
@@ -128,6 +128,26 @@
             @if (d.VoidReason is not null)
             {
                 <div class="alert warn"><Icon Name="ban" Size="18" /><span>@T("sales.anulada_el", Fmt.DateTime(d.VoidedAt!.Value), d.VoidReason)</span></div>
+            }
+            @if (_fiscalDocs.Count > 0)
+            {
+                <div class="fiscal-docs">
+                    @foreach (var fd in _fiscalDocs)
+                    {
+                        var (fiscalText, fiscalTone) = StatusPill.ForFiscal(fd.Status);
+                        <div class="fiscal-doc">
+                            <div class="two-line">
+                                <span class="t1">@Fmt.FiscalKind(fd.Kind) @fd.FullNumber</span>
+                                <span class="t2">@(fd.LastError ?? fd.Notes ?? fd.ResponseDescription ?? (fd.Status == FiscalStatuses.Pending ? T("sales.fiscal_en_cola") : ""))</span>
+                            </div>
+                            <StatusPill Text="@fiscalText" Tone="@fiscalTone" />
+                            @if (fd.Status is FiscalStatuses.Failed or FiscalStatuses.Error && Session.CanOrApprove(PosPermissions.Void))
+                            {
+                                <button class="btn btn-ghost" disabled="@_busy" @onclick="() => RetryFiscalAsync(fd)"><Icon Name="sync" Size="16" />@T("sales.reintentar_envio")</button>
+                            }
+                        </div>
+                    }
+                </div>
             }
             <div class="table-wrap">
                 <table class="data" style="min-width:480px">
@@ -429,8 +449,22 @@
         }
     }
 
+    private IReadOnlyList<FiscalDocumentRow> _fiscalDocs = [];
+
+    private async Task RetryFiscalAsync(FiscalDocumentRow document)
+    {
+        _busy = true;
+        var error = await TryAsync(() => Pos.Fiscal.RetryAsync(Session.FiscalGateway, document.Id));
+        _busy = false;
+        if (error is not null)
+            Toasts.Error(error);
+        if (_detail is { } open)
+            _fiscalDocs = await Pos.Fiscal.GetForSaleAsync(open.Id);
+    }
+
     private async Task OpenAsync(SaleRow sale)
     {
+        _fiscalDocs = await Pos.Fiscal.GetForSaleAsync(sale.Id);
         _lines = await Pos.Sales.GetLinesAsync(sale.Id);
         _payments = await Pos.Sales.GetPaymentsAsync(sale.Id);
         _detail = sale;

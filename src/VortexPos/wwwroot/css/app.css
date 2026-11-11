@@ -1312,6 +1312,12 @@ table.data .strong { font-weight: 700; color: var(--ink); }
 .receipt-done strong { font-size: 28px; font-weight: 800; }
 .receipt-done .change { font-size: 16px; }
 
+/* Comprobantes electrónicos de una venta (fase 5a) */
+.fiscal-docs { display: flex; flex-direction: column; gap: 6px; }
+.fiscal-doc { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.fiscal-doc .two-line { flex: 1; min-width: 0; }
+.fiscal-doc .t2 { overflow-wrap: anywhere; }
+
 @media (max-width: 1100px) {
     .register { grid-template-columns: 1fr; padding: 18px; }
     .register-cart { position: static; }

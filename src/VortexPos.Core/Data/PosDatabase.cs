@@ -210,5 +210,20 @@ internal static class Schema
         ALTER TABLE parties ADD COLUMN credit_limit REAL;
         DELETE FROM sync_cursors WHERE stream = 'master';
         """,
+        // 9: comprobante electrónico (fase 5a). Boletas, facturas y notas de crédito de esta caja (con el pedido para el hub)
+        // y de las otras (por sale.completed, sale.voided y sale.returned); la respuesta llega como hub.fiscal.*. La unidad
+        // UN/ECE del artículo (se vuelve a leer el feed de datos maestros).
+        """
+        CREATE TABLE fiscal_documents (
+            id TEXT PRIMARY KEY, kind TEXT NOT NULL, series TEXT NOT NULL, number INTEGER NOT NULL, sale_id TEXT, return_id TEXT,
+            request TEXT, status TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0, hub_id TEXT, hash TEXT, response_code TEXT,
+            response_description TEXT, notes TEXT, last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE UNIQUE INDEX ux_fiscal_number ON fiscal_documents (kind, series, number);
+        CREATE INDEX ix_fiscal_sale ON fiscal_documents (sale_id);
+        CREATE INDEX ix_fiscal_return ON fiscal_documents (return_id);
+        CREATE INDEX ix_fiscal_pending ON fiscal_documents (sent) WHERE request IS NOT NULL;
+        ALTER TABLE items ADD COLUMN unit_code TEXT;
+        DELETE FROM sync_cursors WHERE stream = 'master';
+        """,
     ];
 }

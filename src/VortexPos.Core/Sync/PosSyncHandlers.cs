@@ -13,6 +13,7 @@ namespace VortexPos.Core.Sync;
 /// <list type="bullet">
 /// <item>Actualiza la copia de datos maestros (artículos, tiendas, clientes, empresa).</item>
 /// <item>Muestra el stock que publica el WMS (<c>stock.adjusted</c>, saldo absoluto por sede).</item>
+/// <item>Actualiza el estado de los comprobantes electrónicos de las cajas con la respuesta de la autoridad (<c>hub.fiscal.*</c>).</item>
 /// <item>Anota el comprobante que emite el ERP para una venta (<c>invoice.issued</c> con <c>saleId</c>) y lo quita si se anula
 /// (<c>invoice.voided</c>).</item>
 /// <item>Replica las ventas, anulaciones y devoluciones de <b>las otras cajas</b> de la organización, que llegan como
@@ -42,7 +43,20 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
         .OnEvent(SuiteEvents.InvoiceIssued, HandleInvoiceIssuedAsync)
         .OnEvent(SuiteEvents.InvoiceVoided, HandleInvoiceVoidedAsync)
         .OnEvent(SuiteEvents.BalanceMoved, HandleBalanceMovedAsync)
-        .OnEvent(SuiteEvents.PaymentReceived, HandlePaymentReceivedAsync);
+        .OnEvent(SuiteEvents.PaymentReceived, HandlePaymentReceivedAsync)
+        .OnEvent(SuiteEvents.FiscalAccepted, HandleFiscalResponseAsync)
+        .OnEvent(SuiteEvents.FiscalRejected, HandleFiscalResponseAsync);
+
+    /// <summary>Respuesta de la autoridad a un comprobante de una caja (de esta o de otra): actualiza su estado.</summary>
+    public Task HandleFiscalResponseAsync(VortexEvent e, CancellationToken ct = default) =>
+        ApplyOnceAsync<VortexFiscalResponded>(e, async (r, c, tx) =>
+        {
+            if (e.Source != "HUB")
+                return "ignorado: la respuesta fiscal solo la publica el hub";
+            if (r.Product != ProductCode)
+                return "ignorado: comprobante de otro sistema";
+            return await FiscalService.ApplyResponseAsync(c, tx, e.OccurredAt, r) > 0 ? null : "comprobante desconocido";
+        }, ct);
 
     /// <summary>Movimiento de puntos o gift card de otra caja (o de esta, al volver del hub): se guarda una vez.</summary>
     public Task HandleBalanceMovedAsync(VortexEvent e, CancellationToken ct = default) =>
@@ -107,7 +121,7 @@ public sealed class PosSyncHandlers(PosDatabase db, MasterDataService master, Ti
         {
             if (e.Source != ProductCode)
                 return "ignorado: los registros del POS solo los publica el POS";
-            if (record.Kind is not (PosRecordKinds.StoreSettings or PosRecordKinds.Promotion or PosRecordKinds.Loyalty or PosRecordKinds.Layaway) || string.IsNullOrEmpty(record.Id))
+            if (record.Kind is not (PosRecordKinds.StoreSettings or PosRecordKinds.Promotion or PosRecordKinds.Loyalty or PosRecordKinds.Layaway or PosRecordKinds.FiscalSeries) || string.IsNullOrEmpty(record.Id))
                 return $"ignorado: tipo de registro {record.Kind}";
             return await StoreSettingsService.UpsertAsync(c, tx, record) ? null : "ignorado: hay un cambio más reciente";
         }, ct);

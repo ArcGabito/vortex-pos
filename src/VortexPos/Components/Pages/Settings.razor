@@ -217,6 +217,42 @@
                 </div>
             </div>
 
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h3>@T("settings.comprobante_electronico")</h3>
+                        <div class="sub">@T("settings.comprobante_explica")</div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (_fiscal.Enabled)
+                    {
+                        <div class="alert info"><Icon Name="check" Size="18" /><span>@T("settings.emite_comprobantes", _fiscal.Series!.ReceiptSeries, _fiscal.Series.InvoiceSeries)</span></div>
+                    }
+                    else if (_fiscal.Reason is { } motivo)
+                    {
+                        <div class="alert warn"><Icon Name="alert" Size="18" /><span>@motivo</span></div>
+                    }
+                    <div class="form-row">
+                        <div class="field">
+                            <label>@T("settings.serie_boletas")</label>
+                            <input class="control" maxlength="4" placeholder="B001" @bind="_receiptSeries" disabled="@(!Session.Can(PosPermissions.StoreSettings))" />
+                        </div>
+                        <div class="field">
+                            <label>@T("settings.serie_facturas")</label>
+                            <input class="control" maxlength="4" placeholder="F001" @bind="_invoiceSeries" disabled="@(!Session.Can(PosPermissions.StoreSettings))" />
+                        </div>
+                    </div>
+                    <span class="muted" style="font-size:12.5px">@T("settings.series_explica")</span>
+                    @if (Session.Can(PosPermissions.StoreSettings))
+                    {
+                        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+                            <button class="btn btn-dark btn-sm" @onclick="SaveSeriesAsync">@T("settings.guardar")</button>
+                        </div>
+                    }
+                </div>
+            </div>
+
             @if (Session.Can(PosPermissions.StoreSettings) && _storeId is not null)
             {
                 <div class="card">
@@ -363,8 +399,20 @@
         _printerPort = Printer.Port;
     }
 
+    private FiscalSetup _fiscal = new(false, null, null);
+    private string? _receiptSeries, _invoiceSeries;
+
+    private async Task SaveSeriesAsync()
+    {
+        await RunAsync(() => Pos.Fiscal.SaveSeriesAsync(new FiscalSeries(_receiptSeries ?? "", _invoiceSeries ?? "")), T("settings.series_guardadas"));
+        _fiscal = await Pos.Fiscal.GetSetupAsync();
+    }
+
     protected override async Task LoadAsync()
     {
+        _fiscal = await Pos.Fiscal.GetSetupAsync();
+        _receiptSeries ??= _fiscal.Series?.ReceiptSeries;
+        _invoiceSeries ??= _fiscal.Series?.InvoiceSeries;
         _sites = (await Pos.Master.GetSitesAsync(activeOnly: true))
             .Where(s => Session.SiteIds.Count == 0 || Session.SiteIds.Contains(s.Id)).ToList();
         _failed = await Session.GetFailedAsync();

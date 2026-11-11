@@ -128,7 +128,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | # | Requisito | Estado | Fase |
 |---|---|---|---|
 | POS-100 | Comprobante emitido por el ERP a partir de la venta | Hecho | — |
-| POS-101 | Comprobante electrónico en caja por país (boleta y factura en Perú, CFDI, DIAN, DTE) | Pendiente | 5 |
+| POS-101 | Comprobante electrónico en caja por país (boleta y factura en Perú, CFDI, DIAN, DTE) | Parcial (Perú) | 5a |
 | POS-102 | Impresora fiscal donde la ley la exige | Pendiente | 5 |
 
 ### Reportes
@@ -298,6 +298,16 @@ espera el bloque de consentimientos en `party` del hub (fase 7 del CRM).
 **Terminado cuando:** una venta con tarjeta se cobra desde la caja sin digitar el monto en el terminal; una boleta
 electrónica sale con su código QR y queda aceptada por la OSE; si la OSE no responde, la venta se emite en
 contingencia.
+
+**Estado 5a (2026-11):** hecha la parte de comprobante electrónico de Perú (POS-101). Decisión 3 tomada como se
+recomendaba, con el paquete de localización en el hub (vortex-api#42 y #43): la caja numera la **boleta** (o la
+**factura**, con un cliente con RUC válido) en la transacción de la venta con las **series de cada caja** (que viajan a
+las demás para que ninguna repita), imprime el ticket con el **QR** (ESC/POS), op. gravada/exonerada/inafecta e IGV
+calculados por línea como el XML, y el hub la firma y la envía a SUNAT. **Sin red se emite en contingencia** y se envía
+en la siguiente sincronización. **Anular** emite la nota de crédito con motivo 01 y **devolver**, con motivo 07. El estado
+(por enviar, aceptado, con observaciones, rechazado, con error) se ve en Ventas, con reintento. Reglas: boleta desde
+S/ 700 identifica al cliente; RUC con dígito verificador. Pruebas en `FiscalTests`. Siguen: 5b (otra moneda y propinas)
+y 5c (terminales de pago y QR con confirmación); la impresora fiscal (POS-102) no aplica en Perú.
 
 ## Fase 6: inventario en tienda y omnicanal · M
 
