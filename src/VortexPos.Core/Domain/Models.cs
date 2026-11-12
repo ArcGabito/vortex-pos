@@ -79,9 +79,16 @@ public sealed record ItemDraft(
 public sealed record SiteDraft(
     string Code, string Name, string Kind, string? Phone, string? AddressLine, string? City, string CountryCode, bool IsActive = true);
 
+/// <param name="Consents">Consentimientos que el cliente dio en caja (POS-56).</param>
 public sealed record PartyDraft(
     string Name, string Kind, bool IsCustomer, bool IsSupplier, string? DocumentType, string? DocumentNumber,
-    string? Email, string? Phone, string? City, string CountryCode = "PE");
+    string? Email, string? Phone, string? City, string CountryCode = "PE", ConsentDraft? Consents = null);
+
+/// <summary>Lo que el cliente autoriza (Ley 29733, LGPD, GDPR): tratamiento de datos y publicidad por los canales elegidos.</summary>
+public sealed record ConsentDraft(bool DataProcessing, bool Marketing, IReadOnlyList<string>? Channels = null)
+{
+    public static readonly string[] AllChannels = ["email", "whatsapp", "sms", "phone"];
+}
 
 // ---------- Ventas ----------
 
@@ -277,7 +284,7 @@ public sealed record HeldSale(Guid Id, string? Label, Guid? CustomerId, IReadOnl
 public sealed record StoreSettings(
     string? TicketHeader = null, string? TicketFooter = null, int PaperColumns = 48, bool BlindClose = false,
     bool PrintAutomatically = true, bool OpenDrawerOnCash = true, bool ScaleLabels = false,
-    string ScaleLabelMode = ScaleLabel.Weight, int ScaleItemDigits = 5, int ReturnDays = 30)
+    string ScaleLabelMode = ScaleLabel.Weight, int ScaleItemDigits = 5, int ReturnDays = 30, string? PrivacyPolicyVersion = null)
 {
     public static StoreSettings Default { get; } = new();
 }
