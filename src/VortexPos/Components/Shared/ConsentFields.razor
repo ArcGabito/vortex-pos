@@ -1,0 +1,63 @@
+@* Consentimientos del cliente (POS-56): tratamiento de datos y publicidad por canal. *@
+<div class="field consent-fields" style="display:flex;flex-direction:column;gap:6px">
+    <label>@T("consent.consentimientos")</label>
+    <label class="check"><input type="checkbox" checked="@Form.DataProcessing" @onchange="e => Form.Set(data: e.Value is true)" />@T("consent.datos")</label>
+    <label class="check"><input type="checkbox" checked="@Form.Marketing" disabled="@(!Form.DataProcessing)" @onchange="e => Form.Set(marketing: e.Value is true)" />@T("consent.publicidad")</label>
+    @if (Form.Marketing)
+    {
+        <div class="chips">
+            @foreach (var canal in ConsentDraft.AllChannels)
+            {
+                <button type="button" class="chip @(Form.Channels.Contains(canal) ? "on" : "")" @onclick="() => Form.Toggle(canal)">@T("consent.canal." + canal)</button>
+            }
+        </div>
+    }
+    <span class="hint">@T("consent.ley")</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ConsentForm Form { get; set; } = null!;
+
+    /// <summary>Lo que se marca en pantalla; <c>Asked</c> indica que el cajero tocó algo (si no, no se registra nada).</summary>
+    public sealed class ConsentForm
+    {
+        public bool DataProcessing { get; private set; }
+        public bool Marketing { get; private set; }
+        public HashSet<string> Channels { get; } = [];
+        public bool Asked { get; private set; }
+
+        public void Set(bool? data = null, bool? marketing = null)
+        {
+            Asked = true;
+            if (data is { } d)
+            {
+                DataProcessing = d;
+                if (!d)
+                    Marketing = false;
+            }
+            if (marketing is { } m)
+            {
+                Marketing = m && DataProcessing;
+                if (Marketing && Channels.Count == 0)
+                    Channels.Add("whatsapp");
+            }
+        }
+
+        public void Toggle(string channel)
+        {
+            Asked = true;
+            if (!Channels.Remove(channel))
+                Channels.Add(channel);
+        }
+
+        public ConsentDraft ToDraft() => new(DataProcessing, Marketing, Channels.ToList());
+
+        public static ConsentForm From(VortexApi.Client.VortexPartyConsents? c)
+        {
+            var form = new ConsentForm { DataProcessing = c?.DataProcessing == true, Marketing = c?.Marketing == true, Asked = true };
+            foreach (var ch in c?.Channels ?? [])
+                form.Channels.Add(ch);
+            return form;
+        }
+    }
+}

@@ -241,5 +241,12 @@ internal static class Schema
         ALTER TABLE sales ADD COLUMN tip_to TEXT;
         DELETE FROM sync_cursors WHERE stream = 'master';
         """,
+        // 11: consentimientos del cliente (POS-56). El bloque consents del party del hub y el party tal como llegó (para
+        // volver a subirlo con un cambio sin borrar lo que la caja no guarda); se vuelve a leer el feed de datos maestros.
+        """
+        ALTER TABLE parties ADD COLUMN consents TEXT;
+        ALTER TABLE parties ADD COLUMN hub_data TEXT;
+        DELETE FROM sync_cursors WHERE stream = 'master';
+        """,
     ];
 }

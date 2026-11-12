@@ -8,6 +8,8 @@ y el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Consentimientos (POS-56):** en el alta rápida y desde el cliente elegido, si autoriza el uso de sus datos y por qué
+  canales acepta promociones; viaja al hub en `party.consents` sin borrar lo que la caja no guarda.
 - **Otra moneda y propinas (fase 5b):** cobro en dólares u otra moneda con el tipo de cambio de compra del hub y vuelto en
   soles (el efectivo extranjero se cuenta aparte en el arqueo); propinas por ticket y por persona, fuera del total y del
   comprobante.

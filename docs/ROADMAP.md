@@ -83,7 +83,7 @@ Estados: **Hecho**, **Parcial** (existe una parte; la fase indica qué falta) y 
 | POS-53 | Programa de puntos (acumular y canjear) | Hecho | 4b |
 | POS-54 | Cuenta corriente con límite de crédito | Hecho | 4b |
 | POS-55 | Apartados (separar con adelanto) | Hecho | 4b |
-| POS-56 | Consentimiento para datos y marketing (Ley 29733, LGPD, GDPR) | Pendiente | 4 |
+| POS-56 | Consentimiento para datos y marketing (Ley 29733, LGPD, GDPR) | Hecho | 4 |
 
 ### Hardware
 
@@ -287,6 +287,12 @@ contando lo que debe de todas las cajas menos los cobros del ERP (`payment.recei
 devuelve lo abonado (supervisor). **Alta rápida de cliente** en la caja con documento. Pantalla Saldos y, en la caja,
 los puntos y lo que debe el cliente. Pruebas en `BalancesTests`. Fase 4 terminada salvo POS-56 (consentimientos), que
 espera el bloque de consentimientos en `party` del hub (fase 7 del CRM).
+
+**POS-56 (2026-11):** hecho con el bloque `consents` de `party` en el hub (vortex-api#46). En el alta rápida y desde el
+cliente elegido en la caja se registra si autoriza el tratamiento de sus datos y si acepta promociones (solo con datos
+autorizados) por correo, WhatsApp, SMS o llamadas, con la hora, la caja como origen, quién lo registró y la versión de la
+política de privacidad de la tienda. Para no borrar lo que la caja no guarda (dirección, notas), el cliente se vuelve a
+subir tal como llegó del hub con el bloque nuevo, sin `credit` ni `account`. Fase 4 terminada. Pruebas en `ConsentsTests`.
 
 ## Fase 5: pagos y comprobante fiscal · L
 

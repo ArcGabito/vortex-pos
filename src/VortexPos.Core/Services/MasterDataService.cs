@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using VortexApi.Client;
@@ -83,22 +85,24 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
         await using var c = await Db.OpenAsync(ct);
         await c.ExecAsync("""
             INSERT INTO parties (id, name, trade_name, kind, document_type, document_number, is_customer, is_supplier, email,
-                                 phone, city, is_active, version, is_deleted, pending, updated_at, price_list_id, credit_limit)
+                                 phone, city, is_active, version, is_deleted, pending, updated_at, price_list_id, credit_limit, consents, hub_data)
             VALUES ($id, $name, $trade, $kind, $doctype, $docnum, $customer, $supplier, $email, $phone, $city, $active,
-                    $version, $deleted, 0, $updated, $list, $limit)
+                    $version, $deleted, 0, $updated, $list, $limit, $consents, $hub)
             ON CONFLICT (id) DO UPDATE SET
                 name = excluded.name, trade_name = excluded.trade_name, kind = excluded.kind,
                 document_type = excluded.document_type, document_number = excluded.document_number,
                 is_customer = excluded.is_customer, is_supplier = excluded.is_supplier, email = excluded.email,
                 phone = excluded.phone, city = excluded.city, is_active = excluded.is_active, version = excluded.version,
                 is_deleted = excluded.is_deleted, pending = 0, updated_at = excluded.updated_at, price_list_id = excluded.price_list_id,
-                credit_limit = excluded.credit_limit
+                credit_limit = excluded.credit_limit, consents = excluded.consents, hub_data = excluded.hub_data
             WHERE excluded.version > parties.version
             """, null, ("$id", change.EntityId), ("$name", d.Name), ("$trade", d.TradeName), ("$kind", d.Kind),
             ("$doctype", d.DocumentType), ("$docnum", d.DocumentNumber), ("$customer", d.IsCustomer),
             ("$supplier", d.IsSupplier), ("$email", d.Email), ("$phone", d.Phone), ("$city", d.Address?.City),
             ("$active", d.IsActive), ("$version", change.Version), ("$deleted", Deleted(change.Operation, d.Meta)),
-            ("$updated", d.Meta.UpdatedAt), ("$list", d.Credit?.PriceListId), ("$limit", d.Credit?.CreditLimit));
+            ("$updated", d.Meta.UpdatedAt), ("$list", d.Credit?.PriceListId), ("$limit", d.Credit?.CreditLimit),
+            ("$consents", d.Consents is null ? null : JsonSerializer.Serialize(d.Consents, VortexJson.Options)),
+            ("$hub", JsonSerializer.Serialize(d, VortexJson.Options)));
     }
 
     /// <summary>Lista de precios del hub (<c>price_list</c>): se guarda entera con sus escalas si es más nueva.</summary>
@@ -283,12 +287,13 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
             }
 
             var id = Guid.NewGuid();
+            var consents = draft.Consents is { } cd ? await ConsentsAsync(c, tx, now, cd) : null;
             var body = new
             {
                 name = draft.Name.Trim(), isCustomer = draft.IsCustomer, isSupplier = draft.IsSupplier, kind = draft.Kind,
                 documentType = docType, documentNumber = docNumber, email = Clean(draft.Email), phone = Clean(draft.Phone),
                 address = draft.City is null ? null : new { city = Clean(draft.City), countryCode = draft.CountryCode },
-                isActive = true,
+                isActive = true, consents,
             };
             await c.ExecAsync("""
                 INSERT INTO parties (id, name, trade_name, kind, document_type, document_number, is_customer, is_supplier,
@@ -297,9 +302,62 @@ public sealed partial class MasterDataService(PosDatabase db, IPosContext contex
                 """, tx, ("$id", id), ("$name", body.name), ("$kind", body.kind), ("$doctype", docType), ("$docnum", docNumber),
                 ("$customer", body.isCustomer), ("$supplier", body.isSupplier), ("$email", body.email), ("$phone", body.phone),
                 ("$city", Clean(draft.City)), ("$now", now));
+            if (consents is not null)
+                await c.ExecAsync("UPDATE parties SET consents = $consents WHERE id = $id", tx, ("$id", id),
+                    ("$consents", JsonSerializer.Serialize(consents, VortexJson.Options)));
             await Outbox.EnqueueUpsertAsync(c, tx, now, VortexMasterResource.Parties, id, body);
             return id;
         }, ct);
+    }
+
+    // ---------- Consentimientos (POS-56) ----------
+
+    /// <summary>Los consentimientos del cliente (null: nunca se le preguntó).</summary>
+    public async Task<VortexPartyConsents?> GetConsentsAsync(Guid partyId, CancellationToken ct = default)
+    {
+        await using var c = await Db.OpenAsync(ct);
+        return await c.ScalarAsync<string?>("SELECT consents FROM parties WHERE id = $id", null, ("$id", partyId)) is { } json
+            ? JsonSerializer.Deserialize<VortexPartyConsents>(json, VortexJson.Options)
+            : null;
+    }
+
+    /// <summary>
+    /// Registra lo que el cliente autoriza (o retira) en caja. Se sube al hub el cliente tal como llegó con el bloque
+    /// <c>consents</c> nuevo (sin <c>credit</c> ni <c>account</c>, que son del ERP y del CRM), así no se borra nada que la caja no
+    /// guarda; sin conexión queda en la cola con la hora en que se dio.
+    /// </summary>
+    public Task UpdateConsentsAsync(Guid partyId, ConsentDraft draft, CancellationToken ct = default)
+    {
+        RequirePermission(PosPermissions.Sell);
+        return InTransactionAsync(async (c, tx, now) =>
+        {
+            var row = await c.FirstOrDefaultAsync("SELECT hub_data, name FROM parties WHERE id = $id AND is_deleted = 0",
+                r => new { Hub = r.StrOrNull("hub_data"), Name = r.Str("name") }, tx, ("$id", partyId));
+            Require(row is not null, T("error.el_cliente_no_existe"));
+            Require(row!.Hub is not null, T("error.cliente_aun_no_llega_del_hub"));
+            var consents = await ConsentsAsync(c, tx, now, draft);
+            var body = JsonNode.Parse(row.Hub!)!.AsObject();
+            foreach (var key in new[] { "id", "meta", "credit", "account" })
+                body.Remove(key);
+            body["consents"] = JsonSerializer.SerializeToNode(consents, VortexJson.Options);
+            await Outbox.EnqueueUpsertAsync(c, tx, now, VortexMasterResource.Parties, partyId, body);
+            var copy = JsonNode.Parse(row.Hub!)!.AsObject();
+            copy["consents"] = JsonSerializer.SerializeToNode(consents, VortexJson.Options);
+            await c.ExecAsync("UPDATE parties SET consents = $consents, hub_data = $hub, pending = 1 WHERE id = $id", tx, ("$id", partyId),
+                ("$consents", JsonSerializer.Serialize(consents, VortexJson.Options)), ("$hub", copy.ToJsonString(VortexJson.Options)));
+            await AuditAsync(c, tx, now, "customer.consents", "party", partyId, row.Name,
+                $"datos={(draft.DataProcessing ? "sí" : "no")}, publicidad={(draft.Marketing ? string.Join("/", consents.Channels ?? []) : "no")}");
+            return 0;
+        }, ct);
+    }
+
+    private async Task<VortexPartyConsents> ConsentsAsync(SqliteConnection c, SqliteTransaction tx, DateTimeOffset now, ConsentDraft d)
+    {
+        var channels = d.Marketing ? (d.Channels ?? []).Select(x => x.Trim().ToLowerInvariant()).Where(ConsentDraft.AllChannels.Contains).Distinct().ToList() : [];
+        Require(!d.Marketing || channels.Count > 0, T("error.consentimiento_canal"));
+        Require(d.DataProcessing || !d.Marketing, T("error.consentimiento_datos"));
+        var settings = Context.DefaultSiteId is { } site ? await StoreSettingsService.GetAsync(c, tx, site) : StoreSettings.Default;
+        return new VortexPartyConsents(d.DataProcessing, d.Marketing, channels, settings.PrivacyPolicyVersion, now, "POS", Context.UserName);
     }
 
     // ---------- Consultas ----------

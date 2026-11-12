@@ -102,6 +102,12 @@ else
                             }
                         </span>
                     }
+                    @if (_customerId is { } clienteConsent)
+                    {
+                        <button class="link-btn hint" @onclick="() => EditConsentsAsync(clienteConsent)">
+                            <Icon Name="lock" Size="13" />@(_consents is null ? T("consent.sin_consentimiento") : _consents.Marketing == true ? T("consent.acepta_publicidad", string.Join(", ", _consents.Channels ?? [])) : T("consent.sin_publicidad"))
+                        </button>
+                    }
                     @if (_history is { Purchases: > 0 } h && h.CustomerId == _customerId)
                     {
                         <span class="hint customer-history">
@@ -307,10 +313,24 @@ else
             </div>
             <div class="field"><label>@T("register.nombre_o_razon_social")</label><input class="control" @bind="nc.Name" /></div>
             <div class="field"><label>@T("register.celular_opcional")</label><input class="control" inputmode="tel" @bind="nc.Phone" /></div>
+            <ConsentFields Form="nc.Consents" />
         </ChildContent>
         <Footer>
             <button class="btn" @onclick="() => _newCustomer = null">@T("register.cancelar")</button>
             <button class="btn btn-dark" disabled="@_busy" @onclick="CreateCustomerAsync">@T("register.crear")</button>
+        </Footer>
+    </Modal>
+}
+
+@if (_consentFor is { } consentForm)
+{
+    <Modal Title="@(T("consent.consentimientos"))" Subtitle="@(T("consent.explica"))" Size="sm" Error="@_error" OnClose="() => _consentFor = null">
+        <ChildContent>
+            <ConsentFields Form="consentForm.Form" />
+        </ChildContent>
+        <Footer>
+            <button class="btn" @onclick="() => _consentFor = null">@T("register.cancelar")</button>
+            <button class="btn btn-dark" disabled="@_busy" @onclick="SaveConsentsAsync">@T("consent.guardar")</button>
         </Footer>
     </Modal>
 }
@@ -603,6 +623,7 @@ else
             _listPrices = await Pos.Sales.ListPricesAsync(_tiles, _customerId);
             // Lo que compró este cliente en todas las tiendas (POS-52).
             _history = _customerId is { } who ? await Pos.Sales.GetCustomerHistoryAsync(who) : null;
+            _consents = _customerId is { } whoConsent ? await Pos.Master.GetConsentsAsync(whoConsent) : null;
             _points = _customerId is { } p1 ? await Pos.Balances.GetPointsAsync(p1) : null;
             _account = _customerId is { } p2 ? await Pos.Balances.GetAccountAsync(p2) : null;
             _loyalty ??= await Pos.Balances.GetSettingsAsync();
@@ -769,6 +790,31 @@ else
         public string? DocumentNumber { get; set; }
         public string Name { get; set; } = "";
         public string? Phone { get; set; }
+        public ConsentFields.ConsentForm Consents { get; } = new();
+    }
+
+    // Consentimientos (POS-56): lo que el cliente autoriza, en el alta y después.
+    private VortexApi.Client.VortexPartyConsents? _consents;
+    private (Guid CustomerId, ConsentFields.ConsentForm Form)? _consentFor;
+
+    private async Task EditConsentsAsync(Guid customerId)
+    {
+        _error = null;
+        _consentFor = (customerId, ConsentFields.ConsentForm.From(await Pos.Master.GetConsentsAsync(customerId)));
+    }
+
+    private async Task SaveConsentsAsync()
+    {
+        if (_consentFor is not { } f)
+            return;
+        _busy = true;
+        _error = await TryAsync(() => Pos.Master.UpdateConsentsAsync(f.CustomerId, f.Form.ToDraft()), T("consent.guardados"));
+        _busy = false;
+        if (_error is null)
+        {
+            _consents = await Pos.Master.GetConsentsAsync(f.CustomerId);
+            _consentFor = null;
+        }
     }
 
     private NewCustomer? _newCustomer;
@@ -783,7 +829,7 @@ else
         _busy = true;
         Guid id = default;
         _error = await TryAsync(async () => id = await Pos.Master.CreatePartyAsync(new PartyDraft(n.Name, n.DocumentType == "RUC" ? "Company" : "Person",
-            true, false, n.DocumentType, n.DocumentNumber, null, n.Phone, null)), T("register.cliente_creado"));
+            true, false, n.DocumentType, n.DocumentNumber, null, n.Phone, null, Consents: n.Consents.Asked ? n.Consents.ToDraft() : null)), T("register.cliente_creado"));
         _busy = false;
         if (_error is null)
         {
